@@ -24,7 +24,7 @@ export GO111MODULE=on
 # Yaml files to generate, and the source config dir for them.
 declare -A COMPONENTS
 COMPONENTS=(
-  ["gitlab.yaml"]="gitlab/config"
+  ["gitlab.yaml"]="config"
 )
 readonly COMPONENTS
 

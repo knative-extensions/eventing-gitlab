@@ -64,7 +64,7 @@ spec:
       containers:
       - name: gitlab-webhook
         terminationMessagePolicy: FallbackToLogsOnError
-        image: ko://knative.dev/eventing-contrib/gitlab/cmd/webhook
+        image: ko://knative.dev/eventing-gitlab/cmd/webhook
         env:
           - name: SYSTEM_NAMESPACE
             valueFrom:
