@@ -982,7 +982,7 @@ knative.dev/eventing/test/test_images/transformevents
 knative.dev/networking/pkg
 knative.dev/networking/pkg/apis/networking
 knative.dev/networking/pkg/apis/networking/v1alpha1
-# knative.dev/pkg v0.0.0-20201001022229-7c082ac1c01d
+# knative.dev/pkg v0.0.0-20201009175121-3c4df8c27293
 ## explicit
 knative.dev/pkg/apis
 knative.dev/pkg/apis/duck
@@ -1084,7 +1084,7 @@ knative.dev/serving/pkg/client/injection/informers/serving/v1/service
 knative.dev/serving/pkg/client/listers/autoscaling/v1alpha1
 knative.dev/serving/pkg/client/listers/serving/v1
 knative.dev/serving/pkg/networking
-# knative.dev/test-infra v0.0.0-20200930161929-242b7529399e
+# knative.dev/test-infra v0.0.0-20201009190921-622088de6f36
 ## explicit
 knative.dev/test-infra/scripts
 # sigs.k8s.io/structured-merge-diff/v3 v3.0.1-0.20200706213357-43c19bbb7fba
