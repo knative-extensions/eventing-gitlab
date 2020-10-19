@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"go.uber.org/zap"
@@ -159,21 +158,18 @@ func TestGracefulShutdown(t *testing.T) {
 	ra := newTestAdapter(t, ce)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+
 	go func(ctx context.Context) {
+		defer close(done)
 		err := ra.Start(ctx)
 		if err != nil {
 			t.Error("Unexpected error:", err)
 		}
-		close(done)
+
 	}(ctx)
 
 	cancel()
-
-	select {
-	case <-time.After(2 * time.Second):
-		t.Fatal("Expected adapter to be stopped after 2 seconds")
-	case <-done:
-	}
+	<-done
 }
 func TestServer(t *testing.T) {
 	for _, tc := range testCases {
