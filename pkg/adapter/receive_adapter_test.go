@@ -156,21 +156,21 @@ var testCases = []testCase{
 func TestGracefulShutdown(t *testing.T) {
 	ce := adaptertest.NewTestClient()
 	ra := newTestAdapter(t, ce)
-	ctx, cancel := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 
-	go func() {
-		t.Logf("starting webhook server")
+	go func(ctx context.Context) {
+		defer close(done)
 		err := ra.Start(ctx)
 		if err != nil {
-			t.Error(err)
+			t.Error("Unexpected error:", err)
 		}
-		cancel()
-	}()
+
+	}(ctx)
 
 	cancel()
-	<-ctx.Done()
+	<-done
 }
-
 func TestServer(t *testing.T) {
 	for _, tc := range testCases {
 		ce := adaptertest.NewTestClient()
