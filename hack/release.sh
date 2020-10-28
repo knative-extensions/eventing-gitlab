@@ -15,9 +15,9 @@
 # limitations under the License.
 
 # Documentation about this script and how to use it can be found
-# at https://github.com/knative/test-infra/tree/master/ci
+# at https://github.com/knative/knative.dev/hack/tree/master/ci
 
-source $(dirname $0)/../vendor/knative.dev/test-infra/scripts/release.sh
+source $(dirname $0)/../vendor/knative.dev/hack/release.sh
 
 export GO111MODULE=on
 
@@ -42,7 +42,7 @@ function build_release() {
   for yaml in "${!COMPONENTS[@]}"; do
     local config="${COMPONENTS[${yaml}]}"
     echo "Building Knative Eventing Contrib - ${config}"
-    # TODO(chizhg): reenable --strict mode after https://github.com/knative/test-infra/issues/1262 is fixed.
+    # TODO(chizhg): reenable --strict mode after https://github.com/knative/knative.dev/hack/issues/1262 is fixed.
     ko resolve ${KO_FLAGS} -f ${config}/ | "${LABEL_YAML_CMD[@]}" > ${yaml}
     all_yamls+=(${yaml})
   done
