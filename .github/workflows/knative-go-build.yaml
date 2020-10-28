@@ -13,13 +13,11 @@
 # limitations under the License.
 
 # This file is automagically synced here from github.com/knative-sandbox/.github
-# repo by knobots: https://github.com/mattmoor/knobots and will be overwritten.
+# repo by knobots: https://github.com/knative-sandbox/knobots and will be overwritten.
 
 name: Build
 
 on:
-  push:
-    branches: [ 'master', 'release-*' ]
   pull_request:
     branches: [ 'master', 'release-*' ]
 
@@ -29,7 +27,7 @@ jobs:
     name: Build
     strategy:
       matrix:
-        go-version: [1.14.x]
+        go-version: [1.15.x]
         platform: [ubuntu-latest]
 
     runs-on: ${{ matrix.platform }}
@@ -44,8 +42,6 @@ jobs:
 
       - name: Check out code
         uses: actions/checkout@v2
-        with:
-          fetch-depth: 1
 
       - name: Build
         run: |
