@@ -99,3 +99,9 @@ func eventTypeForWebhook(webhookName string) string {
 
 	return eventTypesByWebhook[webhookName]
 }
+
+// AsEventSource returns a unique reference to the source suitable for use as a
+// CloudEvent source attribute.
+func (s *GitLabSource) AsEventSource() string {
+	return s.Spec.ProjectUrl
+}
