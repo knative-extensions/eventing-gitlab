@@ -68,7 +68,6 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         image: ko://knative.dev/eventing-gitlab/cmd/controller
-        imagePullPolicy: Always
         resources:
           limits:
             cpu: 100m

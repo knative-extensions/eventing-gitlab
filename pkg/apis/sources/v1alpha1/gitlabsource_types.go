@@ -54,11 +54,9 @@ type GitLabSourceSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	ProjectUrl string `json:"projectUrl"`
 
-	// EventType is the type of event to receive from GitLab. These
-	// correspond to supported events to the add project hook
+	// List of webhooks to enable on the selected GitLab project.
+	// Those correspond to the attributes enumerated at
 	// https://docs.gitlab.com/ee/api/projects.html#add-project-hook
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:Enum=push_events,push_events_branch_filter,issues_events,confidential_issues_events,merge_requests_events,tag_push_events,note_events,job_events,pipeline_events,wiki_page_events
 	EventTypes []string `json:"eventTypes"`
 
 	// AccessToken is the Kubernetes secret containing the GitLab
