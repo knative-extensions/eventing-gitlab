@@ -20,15 +20,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"go.uber.org/zap"
+
 	"gopkg.in/go-playground/webhooks.v5/gitlab"
+
+	"knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	"knative.dev/eventing/pkg/adapter/v2"
 	adaptertest "knative.dev/eventing/pkg/adapter/v2/test"
 	"knative.dev/pkg/logging"
@@ -36,8 +41,8 @@ import (
 )
 
 const (
-	testSource  = "https://foo/bar/baz"
 	secretToken = "gitlabsecret"
+	projectURL  = "http://gitlab.example.com/myuser/myproject"
 )
 
 // testCase holds a single row of our GitLabSource table tests
@@ -60,90 +65,54 @@ type testCase struct {
 
 var testCases = []testCase{
 	{
-		name: "valid comment",
-		payload: func() interface{} {
-			pl := gitlab.CommentEventPayload{}
-			pl.ObjectAttributes.URL = testSource
-			return pl
-		}(),
+		name:       "valid comment",
+		payload:    gitlab.CommentEventPayload{},
 		eventType:  gitlab.CommentEvents,
 		statusCode: 202,
 	}, {
-		name: "valid issues",
-		payload: func() interface{} {
-			pl := gitlab.IssueEventPayload{}
-			pl.ObjectAttributes.URL = testSource
-			return pl
-		}(),
+		name:       "valid issues",
+		payload:    gitlab.IssueEventPayload{},
 		eventType:  gitlab.IssuesEvents,
 		statusCode: 202,
 	}, {
-		name: "valid push",
-		payload: func() interface{} {
-			pl := gitlab.PushEventPayload{}
-			pl.Project.HTTPURL = testSource
-			return pl
-		}(),
+		name:       "valid push",
+		payload:    gitlab.PushEventPayload{},
 		eventType:  gitlab.PushEvents,
 		statusCode: 202,
 	}, {
-		name: "valid tag event",
-		payload: func() interface{} {
-			pl := gitlab.TagEventPayload{}
-			pl.Project.HTTPURL = testSource
-			return pl
-		}(),
+		name:       "valid tag event",
+		payload:    gitlab.TagEventPayload{},
 		eventType:  gitlab.TagEvents,
 		statusCode: 202,
 	}, {
-		name: "valid confidential issue event",
-		payload: func() interface{} {
-			pl := gitlab.ConfidentialIssueEventPayload{}
-			pl.ObjectAttributes.URL = testSource
-			return pl
-		}(),
+		name:       "valid confidential issue event",
+		payload:    gitlab.ConfidentialIssueEventPayload{},
 		eventType:  gitlab.ConfidentialIssuesEvents,
 		statusCode: 202,
 	}, {
-		name: "valid merge request event",
-		payload: func() interface{} {
-			pl := gitlab.MergeRequestEventPayload{}
-			pl.ObjectAttributes.URL = testSource
-			return pl
-		}(),
+		name:       "valid merge request event",
+		payload:    gitlab.MergeRequestEventPayload{},
 		eventType:  gitlab.MergeRequestEvents,
 		statusCode: 202,
 	}, {
-		name: "valid wiki page event",
-		payload: func() interface{} {
-			pl := gitlab.WikiPageEventPayload{}
-			pl.ObjectAttributes.URL = testSource
-			return pl
-		}(),
+		name:       "valid wiki page event",
+		payload:    gitlab.WikiPageEventPayload{},
 		eventType:  gitlab.WikiPageEvents,
 		statusCode: 202,
 	}, {
-		name: "valid pipeline event",
-		payload: func() interface{} {
-			pl := gitlab.PipelineEventPayload{}
-			pl.Project.HTTPURL = testSource
-			return pl
-		}(),
+		name:       "valid pipeline event",
+		payload:    gitlab.PipelineEventPayload{},
 		eventType:  gitlab.PipelineEvents,
 		statusCode: 202,
 	}, {
-		name: "valid build event",
-		payload: func() interface{} {
-			pl := gitlab.BuildEventPayload{}
-			pl.Repository.URL = testSource
-			return pl
-		}(),
+		name:       "valid build event",
+		payload:    gitlab.BuildEventPayload{},
 		eventType:  gitlab.BuildEvents,
 		statusCode: 202,
 	}, {
 		name:       "invalid nil payload",
 		payload:    nil,
-		eventType:  gitlab.Event("invalid"),
+		eventType:  gitlab.Event("Invalid Hook"),
 		wantResp:   "event not registered",
 		statusCode: 200,
 	}, {
@@ -192,8 +161,8 @@ func newTestAdapter(t *testing.T, ce cloudevents.Client) *gitLabReceiveAdapter {
 		EnvConfig: adapter.EnvConfig{
 			Namespace: "default",
 		},
-		EnvSecret: secretToken,
-		Port:      "12342",
+		EnvSecret:   secretToken,
+		EventSource: projectURL,
 	}
 	ctx, _ := pkgtesting.SetupFakeContext(t)
 	logger := zap.NewExample().Sugar()
@@ -227,36 +196,57 @@ func (tc *testCase) runner(t *testing.T, url string, ceClient *adaptertest.TestC
 			t.Error(err)
 		}
 
-		if err := tc.validateResponse(t, string(data)); err != nil {
-			t.Error(err)
-		}
-		if err := tc.validateAcceptedPayload(t, ceClient); err != nil {
-			t.Error(err)
-		}
+		tc.validateResponse(t, string(data))
+
+		tc.validateAcceptedPayload(t, ceClient, tc.statusCode)
 	}
 }
 
-func (tc *testCase) validateAcceptedPayload(t *testing.T, ce *adaptertest.TestCloudEventsClient) error {
-	if len(ce.Sent()) != 1 {
-		return nil
-	}
+func (tc *testCase) validateAcceptedPayload(t *testing.T, ce *adaptertest.TestCloudEventsClient, httpCode int) {
+	sentEvents := ce.Sent()
 
-	got := ce.Sent()[0].Data()
-
-	data, err := json.Marshal(tc.payload)
-	if err != nil {
-		return fmt.Errorf("Could not marshal sent payload: %v", err)
+	if httpCode/100 != 2 {
+		require.Len(t, sentEvents, 0, "Event sent despite the non-success HTTP code")
+		return
 	}
+	require.Len(t, sentEvents, 1, "More than 1 event was sent in reaction to the webhooks's message")
 
-	if string(got) != string(data) {
-		return fmt.Errorf("Expected %q event to be sent, got %q", data, string(got))
-	}
-	return nil
+	expectCEType := v1alpha1.GitLabEventType(gitlabEventHeaderToEventType(string(tc.eventType)))
+	expectCESource := projectURL
+	expectData, err := json.Marshal(tc.payload)
+	require.NoError(t, err, "Unable to serialize GitLab payload")
+
+	sentEvent := ce.Sent()[0]
+
+	assert.Equal(t, expectCEType, sentEvent.Type(), "CloudEvent type doesn't match the webhook's event header")
+	assert.Equal(t, expectCESource, sentEvent.Source(), "CloudEvent source doesn't match the project's URL")
+	assert.Equal(t, expectData, sentEvent.Data(), "CloudEvent data differs from original payload")
 }
 
-func (tc *testCase) validateResponse(t *testing.T, message string) error {
-	if tc.wantResp != "" && tc.wantResp != message {
-		return fmt.Errorf("Expected %q response, got %q", tc.wantResp, message)
+func (tc *testCase) validateResponse(t *testing.T, message string) {
+	if tc.wantResp != "" {
+		assert.Equal(t, tc.wantResp, message)
 	}
-	return nil
+}
+
+func TestGitLabEventHeaderToEventType(t *testing.T) {
+	testCases := map[string]struct {
+		input  string
+		expect string
+	}{
+		"bad format": {
+			input:  "Missing The Suffix",
+			expect: "",
+		},
+		"good format": {
+			input:  "Legit Event Type Hook",
+			expect: "legit_event_type",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(*testing.T) {
+			assert.Equal(t, tc.expect, gitlabEventHeaderToEventType(tc.input))
+		})
+	}
 }

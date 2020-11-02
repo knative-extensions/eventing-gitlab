@@ -31,7 +31,7 @@ func TestEventTypes(t *testing.T) {
 		GitLabWebhookIssues,             // \ ...the same event type ("issue")
 	}
 
-	expectTypes := []string{
+	expectTypes := []string{ // sorted
 		"dev.knative.sources.gitlab.issue",
 		"dev.knative.sources.gitlab.merge_request",
 		"dev.knative.sources.gitlab.push",

@@ -246,6 +246,9 @@ func (r *Reconciler) generateKnativeServiceObject(source *sourcesv1alpha1.GitLab
 				SecretKeyRef: source.Spec.SecretToken.SecretKeyRef,
 			},
 		}, {
+			Name:  "GITLAB_EVENT_SOURCE",
+			Value: source.AsEventSource(),
+		}, {
 			Name:  "K_SINK",
 			Value: source.Status.SinkURI.String(),
 		}, {
@@ -259,6 +262,7 @@ func (r *Reconciler) generateKnativeServiceObject(source *sourcesv1alpha1.GitLab
 			Value: "9092",
 		}},
 		r.configs.ToEnvVars()...)
+
 	return &servingv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: fmt.Sprintf("%s-", source.Name),
