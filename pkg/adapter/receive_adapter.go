@@ -104,13 +104,13 @@ func (ra *gitLabReceiveAdapter) start(stopCh <-chan struct{}) error {
 		gracefulShutdown(server, ra.logger, stopCh)
 	}()
 
-	ra.logger.Infof("Server is ready to handle requests at %s", server.Addr)
+	ra.logger.Info("Server is ready to handle requests at ", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("could not listen on %s: %v", server.Addr, err)
 	}
 
 	wg.Wait()
-	ra.logger.Infof("Server stopped")
+	ra.logger.Info("Server stopped")
 	return nil
 }
 
@@ -124,7 +124,7 @@ func gracefulShutdown(server *http.Server, logger *zap.SugaredLogger, stopCh <-c
 
 	server.SetKeepAlivesEnabled(false)
 	if err := server.Shutdown(ctx); err != nil {
-		logger.Fatalf("Could not gracefully shutdown the server: %v", err)
+		logger.Fatal("Could not gracefully shutdown the server: ", err)
 	}
 }
 
@@ -143,20 +143,20 @@ func (ra *gitLabReceiveAdapter) newRouter(hook *gitlab.Webhook) *http.ServeMux {
 			gitlab.BuildEvents,
 		)
 		if err != nil {
-			ra.logger.Errorf("Hook parser error: %v", err)
+			ra.logger.Error("Hook parser error: ", err)
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
 		}
 
 		if err := ra.handleEvent(payload, r.Header); err != nil {
-			ra.logger.Errorf("Event handler error: %v", err)
+			ra.logger.Error("Event handler error: ", err)
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
 		}
 
-		ra.logger.Debug("event processed")
+		ra.logger.Debug("Event processed")
 		w.WriteHeader(http.StatusAccepted)
 	})
 
