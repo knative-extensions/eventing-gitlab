@@ -8,9 +8,9 @@ require (
 	github.com/google/uuid v1.1.2
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.6.0 // indirect
-	github.com/xanzy/go-gitlab v0.32.0
+	github.com/xanzy/go-gitlab v0.39.0
 	go.uber.org/zap v1.16.0
-	gopkg.in/go-playground/webhooks.v5 v5.13.0
+	gopkg.in/go-playground/webhooks.v5 v5.15.0
 	k8s.io/api v0.18.8
 	k8s.io/apimachinery v0.19.0
 	k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible
