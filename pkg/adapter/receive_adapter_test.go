@@ -126,7 +126,7 @@ var testCases = []testCase{
 		name: "valid pipeline event",
 		payload: func() interface{} {
 			pl := gitlab.PipelineEventPayload{}
-			pl.ObjectAttributes.URL = testSource
+			pl.Project.HTTPURL = testSource
 			return pl
 		}(),
 		eventType:  gitlab.PipelineEvents,

@@ -67,6 +67,7 @@ type PushEventPayload struct {
 	CheckoutSHA       string     `json:"checkout_sha"`
 	UserID            int64      `json:"user_id"`
 	UserName          string     `json:"user_name"`
+	UserUsername      string     `json:"user_username"`
 	UserEmail         string     `json:"user_email"`
 	UserAvatar        string     `json:"user_avatar"`
 	ProjectID         int64      `json:"project_id"`
@@ -85,6 +86,7 @@ type TagEventPayload struct {
 	CheckoutSHA       string     `json:"checkout_sha"`
 	UserID            int64      `json:"user_id"`
 	UserName          string     `json:"user_name"`
+	UserUsername      string     `json:"user_username"`
 	UserAvatar        string     `json:"user_avatar"`
 	ProjectID         int64      `json:"project_id"`
 	Project           Project    `json:"Project"`
@@ -104,12 +106,12 @@ type WikiPageEventPayload struct {
 
 // PipelineEventPayload contains the information for GitLab's pipeline status change event
 type PipelineEventPayload struct {
-	ObjectKind       string           `json:"object_kind"`
-	User             User             `json:"user"`
-	Project          Project          `json:"project"`
-	Commit           Commit           `json:"commit"`
-	ObjectAttributes ObjectAttributes `json:"object_attributes"`
-	Jobs             []Job            `json:"jobs"`
+	ObjectKind       string                   `json:"object_kind"`
+	User             User                     `json:"user"`
+	Project          Project                  `json:"project"`
+	Commit           Commit                   `json:"commit"`
+	ObjectAttributes PipelineObjectAttributes `json:"object_attributes"`
+	Jobs             []Job                    `json:"jobs"`
 }
 
 // CommentEventPayload contains the information for GitLab's comment event
@@ -174,6 +176,7 @@ type JobEventPayload struct {
 // SystemHookPayload contains the ObjectKind to match with real hook events
 type SystemHookPayload struct {
 	ObjectKind string `json:"object_kind"`
+	EventName  string `json:"event_name"`
 }
 
 // Issue contains all of the GitLab issue information
@@ -281,6 +284,7 @@ type User struct {
 
 // Project contains all of the GitLab project information
 type Project struct {
+	ID                int64  `json:"id"`
 	Name              string `json:"name"`
 	Description       string `json:"description"`
 	WebURL            string `json:"web_url"`
@@ -354,6 +358,21 @@ type ObjectAttributes struct {
 	Target           Target     `json:"target"`
 	LastCommit       LastCommit `json:"last_commit"`
 	Assignee         Assignee   `json:"assignee"`
+}
+
+// PipelineObjectAttributes contains pipeline specific GitLab object attributes information
+type PipelineObjectAttributes struct {
+	ID         int64      `json:"id"`
+	Ref        string     `json:"ref"`
+	Tag        bool       `json:"tag"`
+	SHA        string     `json:"sha"`
+	BeforeSHA  string     `json:"before_sha"`
+	Source     string     `json:"source"`
+	Status     string     `json:"status"`
+	Stages     []string   `json:"stages"`
+	CreatedAt  customTime `json:"created_at"`
+	FinishedAt customTime `json:"finished_at"`
+	Duration   int64      `json:"duration"`
 }
 
 // Position defines a specific location, identified by paths line numbers and

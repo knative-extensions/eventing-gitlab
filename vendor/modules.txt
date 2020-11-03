@@ -267,7 +267,7 @@ github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
 # github.com/tsenart/vegeta v12.7.1-0.20190725001342-b5f4fca92137+incompatible
 github.com/tsenart/vegeta/lib
-# github.com/xanzy/go-gitlab v0.32.0
+# github.com/xanzy/go-gitlab v0.39.0
 ## explicit
 github.com/xanzy/go-gitlab
 # go.opencensus.io v0.22.5
@@ -520,7 +520,7 @@ google.golang.org/protobuf/types/pluginpb
 gopkg.in/alecthomas/kingpin.v2
 # gopkg.in/evanphx/json-patch.v4 v4.9.0
 gopkg.in/evanphx/json-patch.v4
-# gopkg.in/go-playground/webhooks.v5 v5.13.0
+# gopkg.in/go-playground/webhooks.v5 v5.15.0
 ## explicit
 gopkg.in/go-playground/webhooks.v5/gitlab
 # gopkg.in/inf.v0 v0.9.1
