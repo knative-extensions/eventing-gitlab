@@ -143,35 +143,28 @@ func (ra *gitLabReceiveAdapter) newRouter(hook *gitlab.Webhook) *http.ServeMux {
 			gitlab.BuildEvents,
 		)
 		if err != nil {
-			if err == gitlab.ErrEventNotFound {
-				w.Write([]byte("event not registered"))
-				return
-			}
-			ra.logger.Errorf("hook parser error: %v", err)
-			w.WriteHeader(400)
+			ra.logger.Errorf("Hook parser error: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
 		}
-		err = ra.handleEvent(payload, r.Header)
-		if err != nil {
-			ra.logger.Errorf("event handler error: %v", err)
-			w.WriteHeader(400)
+
+		if err := ra.handleEvent(payload, r.Header); err != nil {
+			ra.logger.Errorf("Event handler error: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
 		}
-		ra.logger.Infof("event processed")
-		w.WriteHeader(202)
-		w.Write([]byte("accepted"))
+
+		ra.logger.Debug("event processed")
+		w.WriteHeader(http.StatusAccepted)
 	})
+
 	return router
 }
 
 func (ra *gitLabReceiveAdapter) handleEvent(payload interface{}, header http.Header) error {
 	eventHeader := header.Get(glHeaderEvent)
-	if eventHeader == "" {
-		return fmt.Errorf(glHeaderEvent + " header is not set")
-	}
-
 	eventType := gitlabEventHeaderToEventType(eventHeader)
 	if eventType == "" {
 		return fmt.Errorf("invalid webhook event type " + eventHeader)
@@ -201,8 +194,7 @@ func (ra *gitLabReceiveAdapter) postMessage(payload interface{}, source, eventTy
 		return fmt.Errorf("failed to marshal event data: %w", err)
 	}
 
-	result := ra.client.Send(context.Background(), event)
-	if !cloudevents.IsACK(result) {
+	if result := ra.client.Send(context.Background(), event); !cloudevents.IsACK(result) {
 		return result
 	}
 	return nil

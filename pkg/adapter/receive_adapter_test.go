@@ -50,8 +50,8 @@ type testCase struct {
 	// name is a descriptive name for this test suitable as a first argument to t.Run()
 	name string
 
-	// wantRsp contains the pattern to match the returned server response
-	wantResp string
+	// wantErr is the expected error returned in the server's response
+	wantErr error
 
 	// which status code server should return
 	statusCode int
@@ -113,11 +113,11 @@ var testCases = []testCase{
 		name:       "invalid nil payload",
 		payload:    nil,
 		eventType:  gitlab.Event("Invalid Hook"),
-		wantResp:   "event not registered",
-		statusCode: 200,
+		wantErr:    gitlab.ErrEventNotFound,
+		statusCode: 400,
 	}, {
 		name:       "invalid empty eventType",
-		wantResp:   gitlab.ErrMissingGitLabEventHeader.Error(),
+		wantErr:    gitlab.ErrMissingGitLabEventHeader,
 		statusCode: 400,
 	},
 }
@@ -174,8 +174,8 @@ func newTestAdapter(t *testing.T, ce cloudevents.Client) *gitLabReceiveAdapter {
 // runner returns a testing func that can be passed to t.Run.
 func (tc *testCase) runner(t *testing.T, url string, ceClient *adaptertest.TestCloudEventsClient) func(*testing.T) {
 	return func(t *testing.T) {
-		body, _ := json.Marshal(tc.payload)
-		req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+		reqBody, _ := json.Marshal(tc.payload)
+		req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
 		if err != nil {
 			t.Error(err)
 		}
@@ -191,12 +191,12 @@ func (tc *testCase) runner(t *testing.T, url string, ceClient *adaptertest.TestC
 			t.Errorf("Unexpected status code: %s", resp.Status)
 		}
 
-		data, err := ioutil.ReadAll(resp.Body)
+		respBody, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			t.Error(err)
 		}
 
-		tc.validateResponse(t, string(data))
+		tc.validateResponse(t, string(respBody))
 
 		tc.validateAcceptedPayload(t, ceClient, tc.statusCode)
 	}
@@ -213,20 +213,28 @@ func (tc *testCase) validateAcceptedPayload(t *testing.T, ce *adaptertest.TestCl
 
 	expectCEType := v1alpha1.GitLabEventType(gitlabEventHeaderToEventType(string(tc.eventType)))
 	expectCESource := projectURL
+	expectCEExt := string(tc.eventType)
 	expectData, err := json.Marshal(tc.payload)
 	require.NoError(t, err, "Unable to serialize GitLab payload")
 
 	sentEvent := ce.Sent()[0]
 
-	assert.Equal(t, expectCEType, sentEvent.Type(), "CloudEvent type doesn't match the webhook's event header")
-	assert.Equal(t, expectCESource, sentEvent.Source(), "CloudEvent source doesn't match the project's URL")
-	assert.Equal(t, expectData, sentEvent.Data(), "CloudEvent data differs from original payload")
+	assert.Equal(t, expectCEType, sentEvent.Type(),
+		"CloudEvent type doesn't match the webhook's event header")
+	assert.Equal(t, expectCESource, sentEvent.Source(),
+		"CloudEvent source doesn't match the project's URL")
+	assert.Equal(t, expectCEExt, sentEvent.Extensions()[glHeaderEventCEAttr],
+		"CloudEvent extension doesn't match the match the webhook's event header")
+	assert.Equal(t, expectData, sentEvent.Data(),
+		"CloudEvent data differs from original payload")
 }
 
-func (tc *testCase) validateResponse(t *testing.T, message string) {
-	if tc.wantResp != "" {
-		assert.Equal(t, tc.wantResp, message)
+func (tc *testCase) validateResponse(t *testing.T, body string) {
+	if tc.wantErr != nil {
+		assert.EqualError(t, tc.wantErr, body)
+		return
 	}
+	assert.Empty(t, body)
 }
 
 func TestGitLabEventHeaderToEventType(t *testing.T) {
