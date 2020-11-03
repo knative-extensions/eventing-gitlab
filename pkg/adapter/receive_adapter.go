@@ -222,7 +222,7 @@ func sourceFromGitLabEvent(gitLabEvent gitlab.Event, payload interface{}) string
 		return wpe.ObjectAttributes.URL
 	case gitlab.PipelineEvents:
 		pe := payload.(gitlab.PipelineEventPayload)
-		return pe.ObjectAttributes.URL
+		return pe.Project.HTTPURL
 	case gitlab.BuildEvents:
 		be := payload.(gitlab.BuildEventPayload)
 		return be.Repository.Homepage
