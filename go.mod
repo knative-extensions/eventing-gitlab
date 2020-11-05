@@ -8,10 +8,10 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.6.0 // indirect
-	github.com/xanzy/go-gitlab v0.32.0
+	github.com/xanzy/go-gitlab v0.39.0
 	go.opencensus.io v0.22.5-0.20200716030834-3456e1d174b2 // indirect
 	go.uber.org/zap v1.15.0
-	gopkg.in/go-playground/webhooks.v5 v5.13.0
+	gopkg.in/go-playground/webhooks.v5 v5.15.0
 	gopkg.in/yaml.v3 v3.0.0-20200601152816-913338de1bd2 // indirect
 	k8s.io/api v0.18.8
 	k8s.io/apimachinery v0.19.0
