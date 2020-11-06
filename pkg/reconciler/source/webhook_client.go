@@ -25,21 +25,24 @@ import (
 )
 
 type projectHookOptions struct {
-	accessToken              string
-	secretToken              string
-	project                  string
-	id                       string
-	url                      string
-	PushEvents               bool
-	IssuesEvents             bool
+	accessToken           string
+	secretToken           string
+	project               string
+	id                    string
+	url                   string
+	EnableSSLVerification bool
+
 	ConfidentialIssuesEvents bool
-	MergeRequestsEvents      bool
-	TagPushEvents            bool
-	NoteEvents               bool
+	ConfidentialNoteEvents   bool
+	DeploymentEvents         bool
+	IssuesEvents             bool
 	JobEvents                bool
+	MergeRequestsEvents      bool
+	NoteEvents               bool
 	PipelineEvents           bool
+	PushEvents               bool
+	TagPushEvents            bool
 	WikiPageEvents           bool
-	EnableSSLVerification    bool
 }
 
 type gitlabHookClient struct{}
@@ -74,18 +77,22 @@ func (client gitlabHookClient) Create(baseURL string, options *projectHookOption
 	}
 
 	hookOptions := gitlab.AddProjectHookOptions{
-		URL:                      &options.url,
-		PushEvents:               &options.PushEvents,
-		IssuesEvents:             &options.IssuesEvents,
+		Token:                 &options.secretToken,
+		URL:                   &options.url,
+		EnableSSLVerification: &options.EnableSSLVerification,
+
 		ConfidentialIssuesEvents: &options.ConfidentialIssuesEvents,
-		MergeRequestsEvents:      &options.MergeRequestsEvents,
-		TagPushEvents:            &options.TagPushEvents,
-		NoteEvents:               &options.NoteEvents,
+		ConfidentialNoteEvents:   &options.ConfidentialNoteEvents,
+		IssuesEvents:             &options.IssuesEvents,
 		JobEvents:                &options.JobEvents,
+		MergeRequestsEvents:      &options.MergeRequestsEvents,
+		NoteEvents:               &options.NoteEvents,
 		PipelineEvents:           &options.PipelineEvents,
+		PushEvents:               &options.PushEvents,
+		TagPushEvents:            &options.TagPushEvents,
 		WikiPageEvents:           &options.WikiPageEvents,
-		Token:                    &options.secretToken,
-		EnableSSLVerification:    &options.EnableSSLVerification,
+		// NOTE(antoineco): not supported in this version of xanzy/go-gitlab
+		//DeploymentEvents: &options.DeploymentEvents,
 	}
 
 	hook, _, err := glClient.Projects.AddProjectHook(options.project, &hookOptions, nil)

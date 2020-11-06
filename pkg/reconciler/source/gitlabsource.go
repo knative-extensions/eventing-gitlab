@@ -22,31 +22,24 @@ import (
 	"net/url"
 	"strings"
 
-	//k8s.io imports
-
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
+
 	"knative.dev/eventing/pkg/reconciler/source"
+	duckv1 "knative.dev/pkg/apis/duck/v1"
 	"knative.dev/pkg/kmeta"
-
-	//knative.dev/serving imports
-
+	"knative.dev/pkg/reconciler"
+	"knative.dev/pkg/resolver"
 	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	servingclientset "knative.dev/serving/pkg/client/clientset/versioned"
 	servinglisters "knative.dev/serving/pkg/client/listers/serving/v1"
 
-	//knative.dev/eventing-gitlab imports
 	sourcesv1alpha1 "knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	clientset "knative.dev/eventing-gitlab/pkg/client/clientset/versioned"
 	listers "knative.dev/eventing-gitlab/pkg/client/listers/sources/v1alpha1"
-
-	//knative.dev/pkg imports
-
-	"knative.dev/pkg/reconciler"
-	"knative.dev/pkg/resolver"
 )
 
 // Reconciler reconciles a GitLabSource object
@@ -72,6 +65,8 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, source *sourcesv1alpha1.
 	source.Status.InitializeConditions()
 	source.Status.ObservedGeneration = source.Generation
 
+	source.Status.CloudEventAttributes = CreateCloudEventAttributes(source.AsEventSource(), source.EventTypes())
+
 	projectName, err := getProjectName(source.Spec.ProjectUrl)
 	if err != nil {
 		return fmt.Errorf("Failed to process project url to get the project name: " + err.Error())
@@ -83,24 +78,28 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, source *sourcesv1alpha1.
 
 	for _, event := range source.Spec.EventTypes {
 		switch event {
-		case "push_events":
-			hookOptions.PushEvents = true
-		case "issues_events":
-			hookOptions.IssuesEvents = true
-		case "confidential_issues_events":
+		case sourcesv1alpha1.GitLabWebhookConfidentialIssues:
 			hookOptions.ConfidentialIssuesEvents = true
-		case "merge_requests_events":
-			hookOptions.MergeRequestsEvents = true
-		case "tag_push_events":
-			hookOptions.TagPushEvents = true
-		case "pipeline_events":
-			hookOptions.PipelineEvents = true
-		case "wiki_page_events":
-			hookOptions.WikiPageEvents = true
-		case "job_events":
+		case sourcesv1alpha1.GitLabWebhookConfidentialNote:
+			hookOptions.ConfidentialNoteEvents = true
+		case sourcesv1alpha1.GitLabWebhookDeployment:
+			hookOptions.DeploymentEvents = true
+		case sourcesv1alpha1.GitLabWebhookIssues:
+			hookOptions.IssuesEvents = true
+		case sourcesv1alpha1.GitLabWebhookJob:
 			hookOptions.JobEvents = true
-		case "note_events":
+		case sourcesv1alpha1.GitLabWebhookMergeRequests:
+			hookOptions.MergeRequestsEvents = true
+		case sourcesv1alpha1.GitLabWebhookNote:
 			hookOptions.NoteEvents = true
+		case sourcesv1alpha1.GitLabWebhookPipeline:
+			hookOptions.PipelineEvents = true
+		case sourcesv1alpha1.GitLabWebhookPush:
+			hookOptions.PushEvents = true
+		case sourcesv1alpha1.GitLabWebhookTagPush:
+			hookOptions.TagPushEvents = true
+		case sourcesv1alpha1.GitLabWebhookWikiPage:
+			hookOptions.WikiPageEvents = true
 		}
 	}
 	hookOptions.accessToken, err = r.secretFrom(ctx, source.Namespace, source.Spec.AccessToken.SecretKeyRef)
@@ -247,6 +246,9 @@ func (r *Reconciler) generateKnativeServiceObject(source *sourcesv1alpha1.GitLab
 				SecretKeyRef: source.Spec.SecretToken.SecretKeyRef,
 			},
 		}, {
+			Name:  "GITLAB_EVENT_SOURCE",
+			Value: source.AsEventSource(),
+		}, {
 			Name:  "K_SINK",
 			Value: source.Status.SinkURI.String(),
 		}, {
@@ -260,6 +262,7 @@ func (r *Reconciler) generateKnativeServiceObject(source *sourcesv1alpha1.GitLab
 			Value: "9092",
 		}},
 		r.configs.ToEnvVars()...)
+
 	return &servingv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: fmt.Sprintf("%s-", source.Name),
@@ -304,4 +307,19 @@ func (r *Reconciler) getOwnedKnativeService(ctx context.Context, source *sources
 	}
 
 	return nil, apierrors.NewNotFound(servingv1.Resource("services"), "")
+}
+
+// CreateCloudEventAttributes returns CloudEvent attributes for the event types
+// supported by the source.
+func CreateCloudEventAttributes(source string, eventTypes []string) []duckv1.CloudEventAttributes {
+	ceAttributes := make([]duckv1.CloudEventAttributes, len(eventTypes))
+
+	for i, typ := range eventTypes {
+		ceAttributes[i] = duckv1.CloudEventAttributes{
+			Type:   typ,
+			Source: source,
+		}
+	}
+
+	return ceAttributes
 }

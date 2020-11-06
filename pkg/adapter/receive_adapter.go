@@ -20,19 +20,23 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
-	"github.com/google/uuid"
 	"go.uber.org/zap"
+
 	"gopkg.in/go-playground/webhooks.v5/gitlab"
+
+	sourcesv1alpha1 "knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	"knative.dev/eventing/pkg/adapter/v2"
 	"knative.dev/pkg/logging"
 )
 
 const (
-	glHeaderEvent = "X-Gitlab-Event"
+	glHeaderEvent       = "X-Gitlab-Event"
+	glHeaderEventCEAttr = "comgitlabevent"
 )
 
 type envConfig struct {
@@ -42,6 +46,8 @@ type envConfig struct {
 	EnvSecret string `envconfig:"GITLAB_SECRET_TOKEN" required:"true"`
 	// Port to listen incoming connections
 	Port string `envconfig:"PORT" default:"8080"`
+	// Name of the event source to set as source attribute on emitted CloudEvents.
+	EventSource string `envconfig:"GITLAB_EVENT_SOURCE" required:"true"`
 }
 
 // gitLabReceiveAdapter converts incoming GitLab webhook events to
@@ -49,6 +55,7 @@ type envConfig struct {
 type gitLabReceiveAdapter struct {
 	logger      *zap.SugaredLogger
 	client      cloudevents.Client
+	eventSource string
 	secretToken string
 	port        string
 }
@@ -67,8 +74,9 @@ func NewAdapter(ctx context.Context, processed adapter.EnvConfigAccessor, ceClie
 	return &gitLabReceiveAdapter{
 		logger:      logger,
 		client:      ceClient,
-		port:        env.Port,
+		eventSource: env.EventSource,
 		secretToken: env.EnvSecret,
+		port:        env.Port,
 	}
 }
 
@@ -96,13 +104,13 @@ func (ra *gitLabReceiveAdapter) start(stopCh <-chan struct{}) error {
 		gracefulShutdown(server, ra.logger, stopCh)
 	}()
 
-	ra.logger.Infof("Server is ready to handle requests at %s", server.Addr)
+	ra.logger.Info("Server is ready to handle requests at ", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("could not listen on %s: %v", server.Addr, err)
 	}
 
 	wg.Wait()
-	ra.logger.Infof("Server stopped")
+	ra.logger.Info("Server stopped")
 	return nil
 }
 
@@ -116,7 +124,7 @@ func gracefulShutdown(server *http.Server, logger *zap.SugaredLogger, stopCh <-c
 
 	server.SetKeepAlivesEnabled(false)
 	if err := server.Shutdown(ctx); err != nil {
-		logger.Fatalf("Could not gracefully shutdown the server: %v", err)
+		logger.Fatal("Could not gracefully shutdown the server: ", err)
 	}
 }
 
@@ -135,97 +143,77 @@ func (ra *gitLabReceiveAdapter) newRouter(hook *gitlab.Webhook) *http.ServeMux {
 			gitlab.BuildEvents,
 		)
 		if err != nil {
-			if err == gitlab.ErrEventNotFound {
-				w.Write([]byte("event not registered"))
-				return
-			}
-			ra.logger.Errorf("hook parser error: %v", err)
-			w.WriteHeader(400)
+			ra.logger.Error("Hook parser error: ", err)
+			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
 		}
-		err = ra.handleEvent(payload, r.Header)
-		if err != nil {
-			ra.logger.Errorf("event handler error: %v", err)
-			w.WriteHeader(400)
+
+		if err := ra.handleEvent(payload, r.Header); err != nil {
+			ra.logger.Error("Event handler error: ", err)
+			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
 		}
-		ra.logger.Infof("event processed")
-		w.WriteHeader(202)
-		w.Write([]byte("accepted"))
+
+		ra.logger.Debug("Event processed")
+		w.WriteHeader(http.StatusAccepted)
 	})
+
 	return router
 }
 
 func (ra *gitLabReceiveAdapter) handleEvent(payload interface{}, header http.Header) error {
-	gitLabEventType := header.Get(glHeaderEvent)
-	if gitLabEventType == "" {
-		return fmt.Errorf("%q header is not set", glHeaderEvent)
+	eventHeader := header.Get(glHeaderEvent)
+	eventType := gitlabEventHeaderToEventType(eventHeader)
+	if eventType == "" {
+		return fmt.Errorf("invalid webhook event type " + eventHeader)
 	}
+
+	ceType := sourcesv1alpha1.GitLabEventType(eventType)
+
 	extensions := map[string]interface{}{
-		glHeaderEvent: gitLabEventType,
+		glHeaderEventCEAttr: eventHeader,
 	}
 
-	uuid, err := uuid.NewRandom()
-	if err != nil {
-		return fmt.Errorf("can't generate event ID: %v", err)
-	}
-	eventID := uuid.String()
-
-	cloudEventType := fmt.Sprintf("%s.%s", "dev.knative.sources.gitlabsource", gitLabEventType)
-	source := sourceFromGitLabEvent(gitlab.Event(gitLabEventType), payload)
-
-	return ra.postMessage(payload, source, cloudEventType, eventID, extensions)
+	return ra.postMessage(payload, ra.eventSource, ceType, extensions)
 }
 
-func (ra *gitLabReceiveAdapter) postMessage(payload interface{}, source, eventType, eventID string,
+func (ra *gitLabReceiveAdapter) postMessage(payload interface{}, source, eventType string,
 	extensions map[string]interface{}) error {
+
 	event := cloudevents.NewEvent(cloudevents.VersionV1)
-	event.SetID(eventID)
 	event.SetType(eventType)
 	event.SetSource(source)
-	err := event.SetData(cloudevents.ApplicationJSON, payload)
-	if err != nil {
+
+	for ext, val := range extensions {
+		event.SetExtension(ext, val)
+	}
+
+	if err := event.SetData(cloudevents.ApplicationJSON, payload); err != nil {
 		return fmt.Errorf("failed to marshal event data: %w", err)
 	}
 
-	result := ra.client.Send(context.Background(), event)
-	if !cloudevents.IsACK(result) {
+	if result := ra.client.Send(context.Background(), event); !cloudevents.IsACK(result) {
 		return result
 	}
 	return nil
 }
 
-func sourceFromGitLabEvent(gitLabEvent gitlab.Event, payload interface{}) string {
-	switch gitLabEvent {
-	case gitlab.PushEvents:
-		pe := payload.(gitlab.PushEventPayload)
-		return pe.Project.HTTPURL
-	case gitlab.TagEvents:
-		te := payload.(gitlab.TagEventPayload)
-		return te.Project.HTTPURL
-	case gitlab.IssuesEvents:
-		ie := payload.(gitlab.IssueEventPayload)
-		return ie.ObjectAttributes.URL
-	case gitlab.ConfidentialIssuesEvents:
-		cie := payload.(gitlab.ConfidentialIssueEventPayload)
-		return cie.ObjectAttributes.URL
-	case gitlab.CommentEvents:
-		ce := payload.(gitlab.CommentEventPayload)
-		return ce.ObjectAttributes.URL
-	case gitlab.MergeRequestEvents:
-		mre := payload.(gitlab.MergeRequestEventPayload)
-		return mre.ObjectAttributes.URL
-	case gitlab.WikiPageEvents:
-		wpe := payload.(gitlab.WikiPageEventPayload)
-		return wpe.ObjectAttributes.URL
-	case gitlab.PipelineEvents:
-		pe := payload.(gitlab.PipelineEventPayload)
-		return pe.Project.HTTPURL
-	case gitlab.BuildEvents:
-		be := payload.(gitlab.BuildEventPayload)
-		return be.Repository.Homepage
+// gitlabEventHeaderToEventType transforms the value of a X-Gitlab-Event header
+// for a webhook request into the corresponding CloudEvent event type.
+// The value of the header follows the format "Some Type Hook", which we
+// convert to snake_case after trimming the "Hook" qualifier.
+// https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#events
+func gitlabEventHeaderToEventType(header string) string {
+	const headerSuffix = " Hook"
+
+	if !strings.HasSuffix(header, headerSuffix) {
+		return ""
 	}
-	return ""
+
+	return strings.ToLower(strings.ReplaceAll(
+		header[:len(header)-len(headerSuffix)],
+		" ", "_",
+	))
 }
