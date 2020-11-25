@@ -24,7 +24,6 @@ import (
 	bindingv1alpha1 "knative.dev/eventing-gitlab/pkg/apis/bindings/v1alpha1"
 	sourcev1alpha1 "knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	"knative.dev/eventing-gitlab/pkg/reconciler/binding"
-	"knative.dev/eventing/pkg/logconfig"
 	"knative.dev/pkg/configmap"
 	"knative.dev/pkg/controller"
 	"knative.dev/pkg/injection"
@@ -122,7 +121,7 @@ func NewGitLabBindingWebhook(opts ...psbinding.ReconcilerOption) injection.Contr
 
 func main() {
 	ctx := webhook.WithOptions(signals.NewContext(), webhook.Options{
-		ServiceName: "gitlab-source-webhook",
+		ServiceName: webhook.NameFromEnv(),
 		Port:        8443,
 		SecretName:  "gitlabsource-webhook-certs",
 	})
@@ -132,7 +131,7 @@ func main() {
 		glbSelector = psbinding.WithSelector(psbinding.InclusionSelector)
 	}
 
-	sharedmain.WebhookMainWithContext(ctx, logconfig.WebhookName(),
+	sharedmain.WebhookMainWithContext(ctx, webhook.NameFromEnv(),
 		certificates.NewController,
 		NewDefaultingAdmissionController,
 		NewValidationAdmissionController,
