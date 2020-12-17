@@ -15,7 +15,7 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: gitlabsource-webhook-certs
+  name: gitlab-webhook-certs
   namespace: knative-sources
   labels:
     contrib.eventing.knative.dev/release: devel
@@ -29,7 +29,7 @@ metadata:
   labels:
     contrib.eventing.knative.dev/release: devel
     role: webhook
-  name: gitlab-source-webhook
+  name: gitlab-webhook
   namespace: knative-sources
 spec:
   ports:
