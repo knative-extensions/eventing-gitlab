@@ -55,7 +55,7 @@ kind: MutatingWebhookConfiguration
 metadata:
   name: gitlabbindings.webhook.gitlab.sources.knative.dev
   labels:
-    samples.knative.dev/release: devel
+    contrib.eventing.knative.dev/release: devel
 webhooks:
 - admissionReviewVersions:
   - v1beta1
