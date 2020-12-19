@@ -123,7 +123,7 @@ func main() {
 	ctx := webhook.WithOptions(signals.NewContext(), webhook.Options{
 		ServiceName: webhook.NameFromEnv(),
 		Port:        8443,
-		SecretName:  "gitlabsource-webhook-certs",
+		SecretName:  "gitlab-webhook-certs",
 	})
 
 	glbSelector := psbinding.WithSelector(psbinding.ExclusionSelector)

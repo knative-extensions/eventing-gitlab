@@ -23,7 +23,7 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: gitlab-source-webhook
+      name: gitlab-webhook
       namespace: knative-sources
   failurePolicy: Fail
   name: defaulting.webhook.gitlab.sources.knative.dev
@@ -39,7 +39,7 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: gitlab-source-webhook
+      name: gitlab-webhook
       namespace: knative-sources
   failurePolicy: Fail
   name: validation.webhook.gitlab.sources.knative.dev
@@ -57,7 +57,7 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: gitlab-source-webhook
+      name: gitlab-webhook
       namespace: knative-sources
   failurePolicy: Fail
   name: gitlabbindings.webhook.gitlab.sources.knative.dev
