@@ -804,7 +804,7 @@ knative.dev/eventing/pkg/reconciler/source
 # knative.dev/hack v0.0.0-20201214230143-4ed1ecb8db24
 ## explicit
 knative.dev/hack
-# knative.dev/networking v0.0.0-20201217015204-ceef42482365
+# knative.dev/networking v0.0.0-20201218160702-9c60344e49e5
 knative.dev/networking/pkg
 knative.dev/networking/pkg/apis/networking
 knative.dev/networking/pkg/apis/networking/v1alpha1
@@ -868,7 +868,7 @@ knative.dev/pkg/webhook/psbinding
 knative.dev/pkg/webhook/resourcesemantics
 knative.dev/pkg/webhook/resourcesemantics/defaulting
 knative.dev/pkg/webhook/resourcesemantics/validation
-# knative.dev/serving v0.19.1-0.20201218215002-782b7f2851a4
+# knative.dev/serving v0.19.1-0.20201221025004-9332de8f044e
 ## explicit
 knative.dev/serving/pkg/apis/autoscaling
 knative.dev/serving/pkg/apis/autoscaling/v1alpha1

@@ -16,7 +16,7 @@ require (
 	knative.dev/eventing v0.19.1-0.20201217221202-9643baffd747
 	knative.dev/hack v0.0.0-20201214230143-4ed1ecb8db24
 	knative.dev/pkg v0.0.0-20201218185703-e41409af6cff
-	knative.dev/serving v0.19.1-0.20201218215002-782b7f2851a4
+	knative.dev/serving v0.19.1-0.20201221025004-9332de8f044e
 )
 
 replace (
