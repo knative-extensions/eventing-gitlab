@@ -26,8 +26,10 @@ import (
 )
 
 // GitLabBindingLister helps list GitLabBindings.
+// All objects returned here must be treated as read-only.
 type GitLabBindingLister interface {
 	// List lists all GitLabBindings in the indexer.
+	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1alpha1.GitLabBinding, err error)
 	// GitLabBindings returns an object that can list and get GitLabBindings.
 	GitLabBindings(namespace string) GitLabBindingNamespaceLister
@@ -58,10 +60,13 @@ func (s *gitLabBindingLister) GitLabBindings(namespace string) GitLabBindingName
 }
 
 // GitLabBindingNamespaceLister helps list and get GitLabBindings.
+// All objects returned here must be treated as read-only.
 type GitLabBindingNamespaceLister interface {
 	// List lists all GitLabBindings in the indexer for a given namespace.
+	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1alpha1.GitLabBinding, err error)
 	// Get retrieves the GitLabBinding from the indexer for a given namespace and name.
+	// Objects returned here must be treated as read-only.
 	Get(name string) (*v1alpha1.GitLabBinding, error)
 	GitLabBindingNamespaceListerExpansion
 }
