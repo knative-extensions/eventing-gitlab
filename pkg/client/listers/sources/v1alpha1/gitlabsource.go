@@ -26,8 +26,10 @@ import (
 )
 
 // GitLabSourceLister helps list GitLabSources.
+// All objects returned here must be treated as read-only.
 type GitLabSourceLister interface {
 	// List lists all GitLabSources in the indexer.
+	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1alpha1.GitLabSource, err error)
 	// GitLabSources returns an object that can list and get GitLabSources.
 	GitLabSources(namespace string) GitLabSourceNamespaceLister
@@ -58,10 +60,13 @@ func (s *gitLabSourceLister) GitLabSources(namespace string) GitLabSourceNamespa
 }
 
 // GitLabSourceNamespaceLister helps list and get GitLabSources.
+// All objects returned here must be treated as read-only.
 type GitLabSourceNamespaceLister interface {
 	// List lists all GitLabSources in the indexer for a given namespace.
+	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1alpha1.GitLabSource, err error)
 	// Get retrieves the GitLabSource from the indexer for a given namespace and name.
+	// Objects returned here must be treated as read-only.
 	Get(name string) (*v1alpha1.GitLabSource, error)
 	GitLabSourceNamespaceListerExpansion
 }
