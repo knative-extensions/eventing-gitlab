@@ -87,6 +87,8 @@ rules:
   - leases
   verbs:
   - create
+  - get
+  - update
 - apiGroups:
   - coordination.k8s.io
   resourceNames:
