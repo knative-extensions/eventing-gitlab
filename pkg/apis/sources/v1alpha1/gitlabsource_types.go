@@ -94,7 +94,7 @@ type GitLabSourceStatus struct {
 	duckv1.SourceStatus `json:",inline"`
 
 	// ID of the project hook registered with GitLab
-	Id string `json:"Id,omitempty"`
+	Id string `json:"id,omitempty"`
 }
 
 const (
