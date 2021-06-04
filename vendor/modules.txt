@@ -796,7 +796,7 @@ k8s.io/utils/buffer
 k8s.io/utils/integer
 k8s.io/utils/pointer
 k8s.io/utils/trace
-# knative.dev/eventing v0.23.0
+# knative.dev/eventing v0.23.1
 ## explicit
 knative.dev/eventing/pkg/adapter/v2
 knative.dev/eventing/pkg/adapter/v2/test
@@ -804,7 +804,7 @@ knative.dev/eventing/pkg/adapter/v2/util/crstatusevent
 knative.dev/eventing/pkg/apis/duck/v1
 knative.dev/eventing/pkg/kncloudevents
 knative.dev/eventing/pkg/reconciler/source
-# knative.dev/hack v0.0.0-20210428122153-93ad9129c268
+# knative.dev/hack v0.0.0-20210602212444-509255f29a24
 ## explicit
 knative.dev/hack
 # knative.dev/networking v0.0.0-20210512050647-ace2d3306f0b
