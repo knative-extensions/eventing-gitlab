@@ -10,13 +10,13 @@ require (
 	github.com/xanzy/go-gitlab v0.39.0
 	go.uber.org/zap v1.17.0
 	gopkg.in/go-playground/webhooks.v5 v5.15.0
-	k8s.io/api v0.19.7
-	k8s.io/apimachinery v0.19.7
-	k8s.io/client-go v0.19.7
-	knative.dev/eventing v0.23.1-0.20210602100130-608a7fea977d
-	knative.dev/hack v0.0.0-20210601210329-de04b70e00d0
-	knative.dev/pkg v0.0.0-20210602095030-0e61d6763dd6
-	knative.dev/serving v0.23.1-0.20210602145637-966f01547a16
+	k8s.io/api v0.20.7
+	k8s.io/apimachinery v0.20.7
+	k8s.io/client-go v0.20.7
+	knative.dev/eventing v0.23.1-0.20210622190628-74d711b6a367
+	knative.dev/hack v0.0.0-20210622141627-e28525d8d260
+	knative.dev/pkg v0.0.0-20210622173328-dd0db4b05c80
+	knative.dev/serving v0.23.1-0.20210622175428-2110f33747c4
 )
 
 replace github.com/prometheus/client_golang => github.com/prometheus/client_golang v0.9.2
