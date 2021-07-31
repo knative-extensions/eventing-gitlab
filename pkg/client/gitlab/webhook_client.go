@@ -72,6 +72,8 @@ func (c *webhookClient) Get(hookID int) (*gitlab.ProjectHook, error) {
 
 // Add adds a new hook to the client's GitLab project.
 func (c *webhookClient) Add(eventTypes []string, webhookURL *apis.URL, tls bool) (hookID int, err error) {
+	enabled := true
+
 	hookOptions := gitlab.AddProjectHookOptions{
 		URL:                   gitlab.String(webhookURL.String()),
 		EnableSSLVerification: &tls,
@@ -81,28 +83,28 @@ func (c *webhookClient) Add(eventTypes []string, webhookURL *apis.URL, tls bool)
 	for _, eventType := range eventTypes {
 		switch eventType {
 		case v1alpha1.GitLabWebhookConfidentialIssues:
-			hookOptions.ConfidentialIssuesEvents = gitlab.Bool(true)
+			hookOptions.ConfidentialIssuesEvents = &enabled
 		case v1alpha1.GitLabWebhookConfidentialNote:
-			hookOptions.ConfidentialNoteEvents = gitlab.Bool(true)
+			hookOptions.ConfidentialNoteEvents = &enabled
 		// NOTE(antoineco): not supported in this version of xanzy/go-gitlab (v0.39.0)
 		//case v1alpha1.GitLabWebhookDeployment:
-		//	hookOptions.DeploymentEvents = gitlab.Bool(true)
+		//	hookOptions.DeploymentEvents = &enabled
 		case v1alpha1.GitLabWebhookIssues:
-			hookOptions.IssuesEvents = gitlab.Bool(true)
+			hookOptions.IssuesEvents = &enabled
 		case v1alpha1.GitLabWebhookJob:
-			hookOptions.JobEvents = gitlab.Bool(true)
+			hookOptions.JobEvents = &enabled
 		case v1alpha1.GitLabWebhookMergeRequests:
-			hookOptions.MergeRequestsEvents = gitlab.Bool(true)
+			hookOptions.MergeRequestsEvents = &enabled
 		case v1alpha1.GitLabWebhookNote:
-			hookOptions.NoteEvents = gitlab.Bool(true)
+			hookOptions.NoteEvents = &enabled
 		case v1alpha1.GitLabWebhookPipeline:
-			hookOptions.PipelineEvents = gitlab.Bool(true)
+			hookOptions.PipelineEvents = &enabled
 		case v1alpha1.GitLabWebhookPush:
-			hookOptions.PushEvents = gitlab.Bool(true)
+			hookOptions.PushEvents = &enabled
 		case v1alpha1.GitLabWebhookTagPush:
-			hookOptions.TagPushEvents = gitlab.Bool(true)
+			hookOptions.TagPushEvents = &enabled
 		case v1alpha1.GitLabWebhookWikiPage:
-			hookOptions.WikiPageEvents = gitlab.Bool(true)
+			hookOptions.WikiPageEvents = &enabled
 		}
 	}
 
@@ -116,37 +118,50 @@ func (c *webhookClient) Add(eventTypes []string, webhookURL *apis.URL, tls bool)
 
 // Edit edits the configuration of a hook in the client's GitLab project.
 func (c *webhookClient) Edit(hookID int, eventTypes []string, webhookURL *apis.URL, tls bool) error {
+	enabled, disabled := true, false
+
 	hookOptions := gitlab.EditProjectHookOptions{
 		URL:                   gitlab.String(webhookURL.String()),
 		EnableSSLVerification: &tls,
 		Token:                 c.secretToken,
+
+		ConfidentialIssuesEvents: &disabled,
+		ConfidentialNoteEvents:   &disabled,
+		IssuesEvents:             &disabled,
+		JobEvents:                &disabled,
+		MergeRequestsEvents:      &disabled,
+		NoteEvents:               &disabled,
+		PipelineEvents:           &disabled,
+		PushEvents:               &disabled,
+		TagPushEvents:            &disabled,
+		WikiPageEvents:           &disabled,
 	}
 
 	for _, eventType := range eventTypes {
 		switch eventType {
 		case v1alpha1.GitLabWebhookConfidentialIssues:
-			hookOptions.ConfidentialIssuesEvents = gitlab.Bool(true)
+			hookOptions.ConfidentialIssuesEvents = &enabled
 		case v1alpha1.GitLabWebhookConfidentialNote:
-			hookOptions.ConfidentialNoteEvents = gitlab.Bool(true)
+			hookOptions.ConfidentialNoteEvents = &enabled
 		// NOTE(antoineco): not supported in this version of xanzy/go-gitlab (v0.39.0)
 		//case v1alpha1.GitLabWebhookDeployment:
-		//	hookOptions.DeploymentEvents = gitlab.Bool(true)
+		//	hookOptions.DeploymentEvents = &enabled
 		case v1alpha1.GitLabWebhookIssues:
-			hookOptions.IssuesEvents = gitlab.Bool(true)
+			hookOptions.IssuesEvents = &enabled
 		case v1alpha1.GitLabWebhookJob:
-			hookOptions.JobEvents = gitlab.Bool(true)
+			hookOptions.JobEvents = &enabled
 		case v1alpha1.GitLabWebhookMergeRequests:
-			hookOptions.MergeRequestsEvents = gitlab.Bool(true)
+			hookOptions.MergeRequestsEvents = &enabled
 		case v1alpha1.GitLabWebhookNote:
-			hookOptions.NoteEvents = gitlab.Bool(true)
+			hookOptions.NoteEvents = &enabled
 		case v1alpha1.GitLabWebhookPipeline:
-			hookOptions.PipelineEvents = gitlab.Bool(true)
+			hookOptions.PipelineEvents = &enabled
 		case v1alpha1.GitLabWebhookPush:
-			hookOptions.PushEvents = gitlab.Bool(true)
+			hookOptions.PushEvents = &enabled
 		case v1alpha1.GitLabWebhookTagPush:
-			hookOptions.TagPushEvents = gitlab.Bool(true)
+			hookOptions.TagPushEvents = &enabled
 		case v1alpha1.GitLabWebhookWikiPage:
-			hookOptions.WikiPageEvents = gitlab.Bool(true)
+			hookOptions.WikiPageEvents = &enabled
 		}
 	}
 
@@ -169,7 +184,7 @@ func (c *webhookClient) Delete(hookID int) error {
 // WebhookClientGetter can obtain a GitLab webhook client from a GitLabSource
 // API object.
 type WebhookClientGetter interface {
-	Get(*v1alpha1.GitLabSource) (*webhookClient, error)
+	Get(*v1alpha1.GitLabSource) (WebhookClient, error)
 }
 
 // NewWebhookClientGetter returns a WebhookClientGetter for the given secrets getter.
@@ -191,8 +206,8 @@ type WebhookClientGetterWithSecretGetter struct {
 var _ WebhookClientGetter = (*WebhookClientGetterWithSecretGetter)(nil)
 
 // Get implements ClientGetter.
-func (g *WebhookClientGetterWithSecretGetter) Get(src *v1alpha1.GitLabSource) (*webhookClient, error) {
-	baseURL, projectName, err := splitGitLabProjectURL(src.Spec.ProjectUrl)
+func (g *WebhookClientGetterWithSecretGetter) Get(src *v1alpha1.GitLabSource) (WebhookClient, error) {
+	baseURL, projectName, err := splitGitLabProjectURL(src.Spec.ProjectURL)
 	if err != nil {
 		return nil, fmt.Errorf("reading components from the given project URL: %w", err)
 	}
@@ -245,12 +260,12 @@ func splitGitLabProjectURL(projectURL string) (baseURL, projectName string, err 
 }
 
 // WebhookClientGetterFunc allows the use of ordinary functions as WebhookClientGetter.
-type WebhookClientGetterFunc func(*v1alpha1.GitLabSource) (*webhookClient, error)
+type WebhookClientGetterFunc func(*v1alpha1.GitLabSource) (WebhookClient, error)
 
 // ClientGetterFunc implements WebhookClientGetter.
 var _ WebhookClientGetter = (WebhookClientGetterFunc)(nil)
 
 // Get implements ClientGetter.
-func (f WebhookClientGetterFunc) Get(src *v1alpha1.GitLabSource) (*webhookClient, error) {
+func (f WebhookClientGetterFunc) Get(src *v1alpha1.GitLabSource) (WebhookClient, error) {
 	return f(src)
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Knative Authors.
+Copyright 2021 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,20 +23,18 @@ import (
 )
 
 // Validate GitLab source object fields
-func (g *GitLabSource) Validate(ctx context.Context) *apis.FieldError {
-	return g.Spec.Validate(ctx).ViaField("spec")
+func (s *GitLabSource) Validate(ctx context.Context) *apis.FieldError {
+	return s.Spec.Validate(ctx).ViaField("spec")
 }
 
 // Validate GitLab source Spec object fields
-func (gs *GitLabSourceSpec) Validate(ctx context.Context) *apis.FieldError {
+func (s *GitLabSourceSpec) Validate(ctx context.Context) *apis.FieldError {
 	var errs *apis.FieldError
 
 	// Validate sink
-	if gs.Sink == nil {
-		fe := apis.ErrMissingField("sink")
-		errs = errs.Also(fe)
-	} else if fe := gs.Sink.Validate(ctx); fe != nil {
-		errs = errs.Also(fe.ViaField("sink"))
+	if fieldErr := s.Sink.Validate(ctx); fieldErr != nil {
+		errs = errs.Also(fieldErr.ViaField("sink"))
 	}
+
 	return errs
 }

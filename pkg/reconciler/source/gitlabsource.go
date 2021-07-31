@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Knative Authors.
+Copyright 2021 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,39 +18,39 @@ package gitlab
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net/url"
-	"strings"
+	"net/http"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes"
 
 	"knative.dev/eventing/pkg/reconciler/source"
+	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
+	"knative.dev/pkg/controller"
 	"knative.dev/pkg/kmeta"
 	"knative.dev/pkg/reconciler"
 	"knative.dev/pkg/resolver"
 	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
-	servingclientset "knative.dev/serving/pkg/client/clientset/versioned"
+	servingclientv1 "knative.dev/serving/pkg/client/clientset/versioned/typed/serving/v1"
 	servinglisters "knative.dev/serving/pkg/client/listers/serving/v1"
 
+	gogitlab "github.com/xanzy/go-gitlab"
+
+	"knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	sourcesv1alpha1 "knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
-	clientset "knative.dev/eventing-gitlab/pkg/client/clientset/versioned"
-	listers "knative.dev/eventing-gitlab/pkg/client/listers/sources/v1alpha1"
+	"knative.dev/eventing-gitlab/pkg/client/gitlab"
 )
 
 // Reconciler reconciles a GitLabSource object
 type Reconciler struct {
-	kubeClientSet kubernetes.Interface
+	gitlabCg gitlab.WebhookClientGetter
 
-	gitlabClientSet clientset.Interface
-	gitlabLister    listers.GitLabSourceLister
-
-	servingClientSet servingclientset.Interface
-	servingLister    servinglisters.ServiceLister
+	ksvcCli    func(namespace string) servingclientv1.ServiceInterface
+	ksvcLister servinglisters.ServiceLister
 
 	receiveAdapterImage string
 
@@ -61,177 +61,176 @@ type Reconciler struct {
 	configs source.ConfigAccessor
 }
 
-func (r *Reconciler) ReconcileKind(ctx context.Context, source *sourcesv1alpha1.GitLabSource) reconciler.Event {
-	source.Status.InitializeConditions()
-	source.Status.ObservedGeneration = source.Generation
+func (r *Reconciler) ReconcileKind(ctx context.Context, src *sourcesv1alpha1.GitLabSource) reconciler.Event {
+	src.Status.CloudEventAttributes = CreateCloudEventAttributes(src.AsEventSource(), src.EventTypes())
 
-	source.Status.CloudEventAttributes = CreateCloudEventAttributes(source.AsEventSource(), source.EventTypes())
-
-	projectName, err := getProjectName(source.Spec.ProjectUrl)
+	sinkURI, err := resolveSinkURL(ctx, r.sinkResolver, src)
 	if err != nil {
-		return fmt.Errorf("Failed to process project url to get the project name: " + err.Error())
+		src.Status.MarkNoSink()
+		return reconciler.NewEvent(corev1.EventTypeWarning,
+			"BadSinkURI", "Could not resolve sink URI: %s", err)
 	}
+	src.Status.MarkSink(sinkURI)
 
-	hookOptions := projectHookOptions{}
-	hookOptions.project = projectName
-	hookOptions.id = source.Status.Id
-
-	for _, event := range source.Spec.EventTypes {
-		switch event {
-		case sourcesv1alpha1.GitLabWebhookConfidentialIssues:
-			hookOptions.ConfidentialIssuesEvents = true
-		case sourcesv1alpha1.GitLabWebhookConfidentialNote:
-			hookOptions.ConfidentialNoteEvents = true
-		case sourcesv1alpha1.GitLabWebhookDeployment:
-			hookOptions.DeploymentEvents = true
-		case sourcesv1alpha1.GitLabWebhookIssues:
-			hookOptions.IssuesEvents = true
-		case sourcesv1alpha1.GitLabWebhookJob:
-			hookOptions.JobEvents = true
-		case sourcesv1alpha1.GitLabWebhookMergeRequests:
-			hookOptions.MergeRequestsEvents = true
-		case sourcesv1alpha1.GitLabWebhookNote:
-			hookOptions.NoteEvents = true
-		case sourcesv1alpha1.GitLabWebhookPipeline:
-			hookOptions.PipelineEvents = true
-		case sourcesv1alpha1.GitLabWebhookPush:
-			hookOptions.PushEvents = true
-		case sourcesv1alpha1.GitLabWebhookTagPush:
-			hookOptions.TagPushEvents = true
-		case sourcesv1alpha1.GitLabWebhookWikiPage:
-			hookOptions.WikiPageEvents = true
-		}
-	}
-	hookOptions.accessToken, err = r.secretFrom(ctx, source.Namespace, source.Spec.AccessToken.SecretKeyRef)
+	adapter, err := r.reconcileAdapter(ctx, src)
 	if err != nil {
-		source.Status.MarkNoSecret("NotFound", "%s", err)
-		return err
-	}
-	hookOptions.secretToken, err = r.secretFrom(ctx, source.Namespace, source.Spec.SecretToken.SecretKeyRef)
-	if err != nil {
-		source.Status.MarkNoSecret("NotFound", "%s", err)
-		return err
-	}
-	source.Status.MarkSecret()
-
-	sink := source.Spec.Sink.DeepCopy()
-
-	if sink.Ref != nil {
-		// To call URIFromDestination(), dest.Ref must have a Namespace. If there is
-		// no Namespace defined in dest.Ref, we will use the Namespace of the source
-		// as the Namespace of dest.Ref.
-		if sink.Ref.Namespace == "" {
-			//TODO how does this work with deprecated fields
-			sink.Ref.Namespace = source.GetNamespace()
-		}
+		src.Status.MarkNotDeployed("FailedSync", "Error reconciling receive adapter: %s", err)
+		return fmt.Errorf("reconciling receive adapter: %w", err)
 	}
 
-	uri, err := r.sinkResolver.URIFromDestinationV1(ctx, *sink, source)
-	if err != nil {
-		source.Status.MarkNoSink("NotFound", "%s", err)
-		return err
-	}
-	source.Status.MarkSink(uri)
-
-	ksvc, err := r.getOwnedKnativeService(ctx, source)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			ksvc = r.generateKnativeServiceObject(source, r.receiveAdapterImage)
-			ksvc, err = r.servingClientSet.ServingV1().Services(ksvc.GetNamespace()).Create(ctx, ksvc, metav1.CreateOptions{})
-			if err != nil {
-				source.Status.MarkNotDeployed("ReceiveAdapterCreationError", "%s", err)
-				return err
-			}
-		} else {
-			source.Status.MarkNotDeployed("ReceiveAdapterNotOwned", "%s", err)
-			return fmt.Errorf("Failed to verify if knative service is created for the gitlabsource: %v", err)
-		}
-	}
-	if !ksvc.IsReady() {
-		source.Status.MarkNotDeployed("ReceiveAdapterNotReady", "Receive adapter Service is not ready")
+	if !adapter.IsReady() {
+		src.Status.MarkNotDeployed("NotReady", "Receive adapter Service is not ready")
 		return nil
 	}
-	source.Status.MarkDeployed()
+	src.Status.MarkDeployed()
 
-	if ksvc.Status.URL == nil {
+	adapterURL := adapter.Status.URL
+
+	// skip this cycle if the adapter's URL couldn't yet be determined
+	if adapterURL == nil {
 		return nil
 	}
-	hookOptions.url = ksvc.Status.URL.String()
-	if source.Spec.SslVerify {
-		hookOptions.EnableSSLVerification = true
-	}
-	baseURL, err := getGitlabBaseURL(source.Spec.ProjectUrl)
+
+	hookID, err := syncWebhook(ctx, r.gitlabCg, src, adapterURL)
 	if err != nil {
-		return fmt.Errorf("Failed to process project url to get the base url: %v", err)
+		return err
 	}
-	gitlabClient := gitlabHookClient{}
-	hookID, err := gitlabClient.Create(baseURL, &hookOptions)
-	if err != nil {
-		source.Status.MarkNoWebhook("WebhookNotConfigured", "%s", err)
-		return fmt.Errorf("Failed to create project hook: %v", err)
-	}
-	source.Status.MarkWebhook()
-	source.Status.Id = hookID
+
+	src.Status.WebhookID = &hookID
+	src.Status.MarkWebhook()
+
 	return nil
 }
 
-func (r *Reconciler) FinalizeKind(ctx context.Context, source *sourcesv1alpha1.GitLabSource) reconciler.Event {
-	if source.Status.Id != "" {
-		hookOptions := projectHookOptions{}
-		projectName, err := getProjectName(source.Spec.ProjectUrl)
-		if err != nil {
-			return fmt.Errorf("failed to process project url to get the project name: %s", err.Error())
-		}
-		hookOptions.project = projectName
-		hookOptions.id = source.Status.Id
-		hookOptions.accessToken, err = r.secretFrom(ctx, source.Namespace, source.Spec.AccessToken.SecretKeyRef)
-		if err != nil {
-			return err
-		}
-		baseURL, err := getGitlabBaseURL(source.Spec.ProjectUrl)
-		if err != nil {
-			return fmt.Errorf("failed to process project url to get the base url: %s", err.Error())
-		}
-		gitlabClient := gitlabHookClient{}
-		err = gitlabClient.Delete(baseURL, &hookOptions)
-		if err != nil {
-			return fmt.Errorf("failed to delete project hook: %s", err.Error())
-		}
-		source.Status.Id = ""
+func (r *Reconciler) FinalizeKind(ctx context.Context, src *sourcesv1alpha1.GitLabSource) reconciler.Event {
+	currentHookID := src.Status.WebhookID
+
+	if currentHookID == nil {
+		return nil
 	}
+
+	gitlabCli, err := r.gitlabCg.Get(src)
+	switch {
+	case isSecretNotFound(err):
+		// the finalizer is unlikely to recover from missing
+		// credentials, so we simply record a warning event and return
+		controller.GetEventRecorder(ctx).Eventf(src, corev1.EventTypeWarning, "FailedWebhookDelete",
+			"GitLab API token missing while finalizing event source. Ignoring: %s", err)
+		return nil
+
+	case isDenied(err):
+		// it is unlikely that we recover from auth errors in the
+		// finalizer, so we simply record a warning event and return
+		controller.GetEventRecorder(ctx).Eventf(src, corev1.EventTypeWarning, "FailedWebhookDelete",
+			"Access denied to GitLab API while finalizing event source. Ignoring: %s", err)
+		return nil
+
+	case err != nil:
+		return reconciler.NewEvent(corev1.EventTypeWarning,
+			"ClientError", "Error obtaining GitLab webhook client: %s", err)
+	}
+
+	if err := gitlabCli.Delete(*currentHookID); err != nil {
+		return err
+	}
+
+	src.Status.WebhookID = nil
+
 	return nil
 }
 
-func getGitlabBaseURL(projectUrl string) (string, error) {
-	u, err := url.Parse(projectUrl)
-	if err != nil {
-		return "", err
+// syncWebhook reconciles the GitLab project's webhook with its desired state.
+func syncWebhook(ctx context.Context, cg gitlab.WebhookClientGetter,
+	src *sourcesv1alpha1.GitLabSource, url *apis.URL) (hookID int, err error) {
+
+	cli, err := cg.Get(src)
+	switch {
+	case isSecretNotFound(err):
+		src.Status.MarkNoWebhook("MissingCredentials", "Error obtaining credentials for GitLab API: %s", err)
+		return -1, reconciler.NewEvent(corev1.EventTypeWarning,
+			"AuthError", "Error obtaining credentials for GitLab API: %s", err)
+
+	case err != nil:
+		src.Status.MarkNoWebhook("ClientError", "Error obtaining GitLab webhook client: %s", err)
+		// wrap reconciler events to fail (and retry) the reconciliation
+		return -1, fmt.Errorf("%w", reconciler.NewEvent(corev1.EventTypeWarning,
+			"ClientError", "Error obtaining GitLab webhook client: %s", err))
 	}
-	projectName := u.Path[1:]
-	baseURL := strings.TrimSuffix(projectUrl, projectName)
-	return baseURL, nil
+
+	currentHookID := src.Status.WebhookID
+
+	if currentHookID == nil {
+		hookID, err := cli.Add(src.Spec.EventTypes, url, src.Spec.SSLVerify)
+		if err != nil {
+			src.Status.MarkNoWebhook("WebhookError", "Error adding webhook: %s", err)
+			return -1, fmt.Errorf("%w", reconciler.NewEvent(corev1.EventTypeWarning,
+				"WebhookError", "Error adding webhook: %s", err))
+		}
+
+		controller.GetEventRecorder(ctx).Eventf(src, corev1.EventTypeNormal,
+			"WebHookCreated", "Project webhook created successfully")
+
+		return hookID, nil
+	}
+
+	_, err = cli.Get(*currentHookID)
+	switch {
+	case isHookNotFound(err):
+		hookID, err := cli.Add(src.Spec.EventTypes, url, src.Spec.SSLVerify)
+		if err != nil {
+			src.Status.MarkNoWebhook("WebhookError", "Error adding webhook: %s", err)
+			return -1, fmt.Errorf("%w", reconciler.NewEvent(corev1.EventTypeWarning,
+				"WebhookError", "Error adding webhook: %s", err))
+		}
+
+		controller.GetEventRecorder(ctx).Eventf(src, corev1.EventTypeNormal,
+			"WebHookCreated", "Project webhook created successfully")
+
+		return hookID, nil
+
+	case err != nil:
+		src.Status.MarkNoWebhook("WebhookError", "Error retrieving webhook: %s", err)
+		return -1, fmt.Errorf("%w", reconciler.NewEvent(corev1.EventTypeWarning,
+			"WebhookError", "Error retrieving webhook: %s", err))
+	}
+
+	err = cli.Edit(*currentHookID, src.Spec.EventTypes, url, src.Spec.SSLVerify)
+	if err != nil {
+		src.Status.MarkNoWebhook("WebhookError", "Error updating webhook: %s", err)
+		return -1, fmt.Errorf("%w", reconciler.NewEvent(corev1.EventTypeWarning,
+			"WebhookError", "Error updating webhook: %s", err))
+	}
+
+	return *currentHookID, nil
 }
 
-func getProjectName(projectUrl string) (string, error) {
-	u, err := url.Parse(projectUrl)
-	if err != nil {
-		return "", err
+// resolveSinkURL resolves the URL of a sink reference.
+func resolveSinkURL(ctx context.Context, r *resolver.URIResolver, src *sourcesv1alpha1.GitLabSource) (*apis.URL, error) {
+	sink := src.Spec.Sink
+
+	if sinkRef := &sink.Ref; *sinkRef != nil && (*sinkRef).Namespace == "" {
+		(*sinkRef).Namespace = src.Namespace
 	}
-	projectName := u.Path[1:]
-	return projectName, nil
+
+	return r.URIFromDestinationV1(ctx, sink, src)
 }
 
-func (r *Reconciler) secretFrom(ctx context.Context, namespace string, secretKeySelector *corev1.SecretKeySelector) (string, error) {
-	secret, err := r.kubeClientSet.CoreV1().Secrets(namespace).Get(ctx, secretKeySelector.Name, metav1.GetOptions{})
-	if err != nil {
-		return "", err
+// reconcileAdapter reconciles the state of the source's adapter.
+func (r *Reconciler) reconcileAdapter(ctx context.Context, src *v1alpha1.GitLabSource) (*servingv1.Service, error) {
+	adapter, err := r.getOwnedKnativeService(ctx, src)
+	switch {
+	case apierrors.IsNotFound(err):
+		adapter = r.generateKnativeServiceObject(src, r.receiveAdapterImage)
+		adapter, err = r.ksvcCli(src.Namespace).Create(ctx, adapter, metav1.CreateOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("creating receive adapter: %w", err)
+		}
+
+	case err != nil:
+		return nil, fmt.Errorf("searching for existing receive adapter: %w", err)
 	}
 
-	secretVal, ok := secret.Data[secretKeySelector.Key]
-	if !ok {
-		return "", fmt.Errorf(`key "%s" not found in secret "%s"`, secretKeySelector.Key, secretKeySelector.Name)
-	}
-	return string(secretVal), nil
+	return adapter, nil
 }
 
 func (r *Reconciler) generateKnativeServiceObject(source *sourcesv1alpha1.GitLabSource, receiveAdapterImage string) *servingv1.Service {
@@ -293,7 +292,7 @@ func (r *Reconciler) generateKnativeServiceObject(source *sourcesv1alpha1.GitLab
 }
 
 func (r *Reconciler) getOwnedKnativeService(ctx context.Context, source *sourcesv1alpha1.GitLabSource) (*servingv1.Service, error) {
-	list, err := r.servingClientSet.ServingV1().Services(source.GetNamespace()).List(ctx, metav1.ListOptions{
+	list, err := r.ksvcCli(source.GetNamespace()).List(ctx, metav1.ListOptions{
 		LabelSelector: labels.Everything().String(),
 	})
 
@@ -322,4 +321,28 @@ func CreateCloudEventAttributes(source string, eventTypes []string) []duckv1.Clo
 	}
 
 	return ceAttributes
+}
+
+// isSecretNotFound returns whether the given error indicates that a Kubernetes
+// Secret does not exist.
+func isSecretNotFound(err error) bool {
+	return apierrors.IsNotFound(err)
+}
+
+// isHookNotFound returns whether the given error indicates that a GitLab
+// project hook does not exist.
+func isHookNotFound(err error) bool {
+	if glErr := (*gogitlab.ErrorResponse)(nil); errors.As(err, &glErr) {
+		return glErr.Response.StatusCode == http.StatusNotFound
+	}
+	return false
+}
+
+// isDenied returns whether the given error indicates that an API request to
+// GitLab was denied.
+func isDenied(err error) bool {
+	if glErr := (*gogitlab.ErrorResponse)(nil); errors.As(err, &glErr) {
+		return glErr.Response.StatusCode == http.StatusUnauthorized
+	}
+	return false
 }

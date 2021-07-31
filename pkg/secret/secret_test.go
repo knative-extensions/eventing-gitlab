@@ -41,7 +41,7 @@ func TestGetter(t *testing.T) {
 		{
 			name:        "No input parameter",
 			input:       []*corev1.SecretKeySelector{},
-			expect:      nil,
+			expect:      Secrets{},
 			getRequests: 0,
 		},
 		{

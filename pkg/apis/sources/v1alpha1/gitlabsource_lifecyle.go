@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Knative Authors.
+Copyright 2021 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,7 +16,89 @@ limitations under the License.
 
 package v1alpha1
 
-import "sort"
+import (
+	"sort"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"knative.dev/pkg/apis"
+	duckv1 "knative.dev/pkg/apis/duck/v1"
+)
+
+const (
+	// GitLabSourceConditionReady has status True when the
+	// GitLabSource is ready to send events.
+	GitLabSourceConditionReady = apis.ConditionReady
+
+	// GitLabSourceConditionSinkProvided has status True when the
+	// GitLabSource has been configured with a sink target.
+	GitLabSourceConditionSinkProvided apis.ConditionType = "SinkProvided"
+
+	// GitLabSourceConditionWebhookConfigured has a status True when the
+	// GitLabSource has been configured with a webhook.
+	GitLabSourceConditionWebhookConfigured apis.ConditionType = "WebhookConfigured"
+
+	// GitLabSourceConditionDeployed has status True when the
+	// GitLabSource's receive adapter has been successfully deployed.
+	GitLabSourceConditionDeployed apis.ConditionType = "Deployed"
+)
+
+var gitLabSourceCondSet = apis.NewLivingConditionSet(
+	GitLabSourceConditionSinkProvided,
+	GitLabSourceConditionDeployed,
+	GitLabSourceConditionWebhookConfigured,
+)
+
+// GetGroupVersionKind returns a GitLabSource GVK. Implements the kmeta.OwnerRefable interface.
+func (*GitLabSource) GetGroupVersionKind() schema.GroupVersionKind {
+	return SchemeGroupVersion.WithKind("GitLabSource")
+}
+
+// GetConditionSet retrieves the condition set for this resource. Implements the KRShaped interface.
+func (*GitLabSource) GetConditionSet() apis.ConditionSet {
+	return gitLabSourceCondSet
+}
+
+// GetStatus retrieves the duck status for this resource. Implements the KRShaped interface.
+func (g *GitLabSource) GetStatus() *duckv1.Status {
+	return &g.Status.Status
+}
+
+// MarkSink sets the SinkProvided condition to True using the given URI.
+func (s *GitLabSourceStatus) MarkSink(uri *apis.URL) {
+	s.SinkURI = uri
+	if uri == nil {
+		gitLabSourceCondSet.Manage(s).MarkFalse(GitLabSourceConditionSinkProvided,
+			"EmptySinkURI", "The sink has no URI")
+		return
+	}
+	gitLabSourceCondSet.Manage(s).MarkTrue(GitLabSourceConditionSinkProvided)
+}
+
+// MarkNoSink sets the SinkProvided condition to False.
+func (s *GitLabSourceStatus) MarkNoSink() {
+	gitLabSourceCondSet.Manage(s).MarkFalse(GitLabSourceConditionSinkProvided,
+		"SinkNotFound", "The sink does not exist or its URI is not set")
+}
+
+// MarkWebhook sets the WebhookConfigured condition to True.
+func (s *GitLabSourceStatus) MarkWebhook() {
+	gitLabSourceCondSet.Manage(s).MarkTrue(GitLabSourceConditionWebhookConfigured)
+}
+
+// MarkNoWebhook sets the WebhookConfigured condition to False with the given reason and message.
+func (s *GitLabSourceStatus) MarkNoWebhook(reason, messageFormat string, messageA ...interface{}) {
+	gitLabSourceCondSet.Manage(s).MarkFalse(GitLabSourceConditionWebhookConfigured, reason, messageFormat, messageA...)
+}
+
+// MarkWebhook sets the Deployed condition to True.
+func (s *GitLabSourceStatus) MarkDeployed() {
+	gitLabSourceCondSet.Manage(s).MarkTrue(GitLabSourceConditionDeployed)
+}
+
+// MarkNotDeployed sets the Deployed condition to False with the given reason and message.
+func (s *GitLabSourceStatus) MarkNotDeployed(reason, messageFormat string, messageA ...interface{}) {
+	gitLabSourceCondSet.Manage(s).MarkFalse(GitLabSourceConditionDeployed, reason, messageFormat, messageA...)
+}
 
 // String prepended to GitLab event types to make them fully-qualified.
 const eventPrefixGitLab = "dev.knative.sources.gitlab."
@@ -103,5 +185,5 @@ func eventTypeForWebhook(webhookName string) string {
 // AsEventSource returns a unique reference to the source suitable for use as a
 // CloudEvent source attribute.
 func (s *GitLabSource) AsEventSource() string {
-	return s.Spec.ProjectUrl
+	return s.Spec.ProjectURL
 }
