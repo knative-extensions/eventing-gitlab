@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Knative Authors.
+Copyright 2021 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"knative.dev/pkg/webhook/resourcesemantics"
 
 	"knative.dev/pkg/apis"
+	"knative.dev/pkg/webhook/resourcesemantics"
 )
 
 func TestGitLabSourceValidation(t *testing.T) {
@@ -31,13 +31,13 @@ func TestGitLabSourceValidation(t *testing.T) {
 		cr   resourcesemantics.GenericCRD
 		want *apis.FieldError
 	}{
-		"missing sink": {
+		"empty sink": {
 			cr: &GitLabSource{
 				Spec: GitLabSourceSpec{},
 			},
 			want: func() *apis.FieldError {
 				var errs *apis.FieldError
-				fe := apis.ErrMissingField("spec.sink")
+				fe := apis.ErrGeneric("expected at least one, got none", "ref", "uri").ViaField("spec.sink")
 				errs = errs.Also(fe)
 				return errs
 			}(),

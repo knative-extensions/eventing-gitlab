@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Knative Authors.
+Copyright 2021 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,26 +21,21 @@ import (
 
 	"github.com/kelseyhightower/envconfig"
 
-	//k8s.io imports
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 
+	"knative.dev/eventing/pkg/reconciler/source"
 	kubeclient "knative.dev/pkg/client/injection/kube/client"
-	serviceclient "knative.dev/serving/pkg/client/injection/client"
-	kserviceinformer "knative.dev/serving/pkg/client/injection/informers/serving/v1/service"
-
-	"knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
-	sourcescheme "knative.dev/eventing-gitlab/pkg/client/clientset/versioned/scheme"
-	gitlabclient "knative.dev/eventing-gitlab/pkg/client/injection/client"
-	gitlabinformer "knative.dev/eventing-gitlab/pkg/client/injection/informers/sources/v1alpha1/gitlabsource"
-	v1alpha1gitlabsource "knative.dev/eventing-gitlab/pkg/client/injection/reconciler/sources/v1alpha1/gitlabsource"
-
 	"knative.dev/pkg/configmap"
 	"knative.dev/pkg/controller"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/resolver"
+	servingclient "knative.dev/serving/pkg/client/injection/client"
+	serviceinformerv1 "knative.dev/serving/pkg/client/injection/informers/serving/v1/service"
 
-	"knative.dev/eventing/pkg/reconciler/source"
+	"knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
+	"knative.dev/eventing-gitlab/pkg/client/gitlab"
+	informerv1alpha1 "knative.dev/eventing-gitlab/pkg/client/injection/informers/sources/v1alpha1/gitlabsource"
+	reconcilerv1alpha1 "knative.dev/eventing-gitlab/pkg/client/injection/reconciler/sources/v1alpha1/gitlabsource"
 )
 
 type envConfig struct {
@@ -52,31 +47,26 @@ func NewController(
 	ctx context.Context,
 	cmw configmap.Watcher,
 ) *controller.Impl {
-	gitlabInformer := gitlabinformer.Get(ctx)
-	serviceInformer := kserviceinformer.Get(ctx)
+	env := &envConfig{}
+	envconfig.MustProcess("", env)
+
+	serviceInformer := serviceinformerv1.Get(ctx)
 
 	r := &Reconciler{
-		kubeClientSet:    kubeclient.Get(ctx),
-		servingLister:    serviceInformer.Lister(),
-		servingClientSet: serviceclient.Get(ctx),
-		gitlabClientSet:  gitlabclient.Get(ctx),
-		gitlabLister:     gitlabInformer.Lister(),
-		loggingContext:   ctx,
-		configs:          source.WatchConfigurations(ctx, "gitlab-controller", cmw),
+		gitlabCg:            gitlab.NewWebhookClientGetter(kubeclient.Get(ctx).CoreV1().Secrets),
+		ksvcCli:             servingclient.Get(ctx).ServingV1().Services,
+		ksvcLister:          serviceInformer.Lister(),
+		receiveAdapterImage: env.Image,
+		loggingContext:      ctx,
+		configs:             source.WatchConfigurations(ctx, "gitlab-controller", cmw),
 	}
 
-	env := &envConfig{}
-	if err := envconfig.Process("", env); err != nil {
-		logging.FromContext(ctx).Panicf("unable to process GitLabSource's required environment variables: %v", err)
-	}
-	r.receiveAdapterImage = env.Image
-
-	impl := v1alpha1gitlabsource.NewImpl(ctx, r)
+	impl := reconcilerv1alpha1.NewImpl(ctx, r)
 	r.sinkResolver = resolver.NewURIResolver(ctx, impl.EnqueueKey)
 
-	logging.FromContext(ctx).Info("Setting up GitLab event handlers")
+	logging.FromContext(ctx).Info("Setting up event handlers")
 
-	gitlabInformer.Informer().AddEventHandler(controller.HandleAll(impl.Enqueue))
+	informerv1alpha1.Get(ctx).Informer().AddEventHandler(controller.HandleAll(impl.Enqueue))
 
 	serviceInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
 		FilterFunc: controller.FilterControllerGVK(v1alpha1.SchemeGroupVersion.WithKind("GitLabSource")),
@@ -85,8 +75,4 @@ func NewController(
 
 	return impl
 
-}
-
-func init() {
-	sourcescheme.AddToScheme(scheme.Scheme)
 }
