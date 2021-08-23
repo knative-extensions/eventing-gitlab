@@ -21,8 +21,15 @@ package gitlabbinding
 import (
 	context "context"
 
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	cache "k8s.io/client-go/tools/cache"
+	apisbindingsv1alpha1 "knative.dev/eventing-gitlab/pkg/apis/bindings/v1alpha1"
+	versioned "knative.dev/eventing-gitlab/pkg/client/clientset/versioned"
 	v1alpha1 "knative.dev/eventing-gitlab/pkg/client/informers/externalversions/bindings/v1alpha1"
+	client "knative.dev/eventing-gitlab/pkg/client/injection/client"
 	factory "knative.dev/eventing-gitlab/pkg/client/injection/informers/factory"
+	bindingsv1alpha1 "knative.dev/eventing-gitlab/pkg/client/listers/bindings/v1alpha1"
 	controller "knative.dev/pkg/controller"
 	injection "knative.dev/pkg/injection"
 	logging "knative.dev/pkg/logging"
@@ -30,6 +37,7 @@ import (
 
 func init() {
 	injection.Default.RegisterInformer(withInformer)
+	injection.Dynamic.RegisterDynamicInformer(withDynamicInformer)
 }
 
 // Key is used for associating the Informer inside the context.Context.
@@ -41,6 +49,11 @@ func withInformer(ctx context.Context) (context.Context, controller.Informer) {
 	return context.WithValue(ctx, Key{}, inf), inf.Informer()
 }
 
+func withDynamicInformer(ctx context.Context) context.Context {
+	inf := &wrapper{client: client.Get(ctx)}
+	return context.WithValue(ctx, Key{}, inf)
+}
+
 // Get extracts the typed informer from the context.
 func Get(ctx context.Context) v1alpha1.GitLabBindingInformer {
 	untyped := ctx.Value(Key{})
@@ -49,4 +62,45 @@ func Get(ctx context.Context) v1alpha1.GitLabBindingInformer {
 			"Unable to fetch knative.dev/eventing-gitlab/pkg/client/informers/externalversions/bindings/v1alpha1.GitLabBindingInformer from context.")
 	}
 	return untyped.(v1alpha1.GitLabBindingInformer)
+}
+
+type wrapper struct {
+	client versioned.Interface
+
+	namespace string
+}
+
+var _ v1alpha1.GitLabBindingInformer = (*wrapper)(nil)
+var _ bindingsv1alpha1.GitLabBindingLister = (*wrapper)(nil)
+
+func (w *wrapper) Informer() cache.SharedIndexInformer {
+	return cache.NewSharedIndexInformer(nil, &apisbindingsv1alpha1.GitLabBinding{}, 0, nil)
+}
+
+func (w *wrapper) Lister() bindingsv1alpha1.GitLabBindingLister {
+	return w
+}
+
+func (w *wrapper) GitLabBindings(namespace string) bindingsv1alpha1.GitLabBindingNamespaceLister {
+	return &wrapper{client: w.client, namespace: namespace}
+}
+
+func (w *wrapper) List(selector labels.Selector) (ret []*apisbindingsv1alpha1.GitLabBinding, err error) {
+	lo, err := w.client.BindingsV1alpha1().GitLabBindings(w.namespace).List(context.TODO(), v1.ListOptions{
+		LabelSelector: selector.String(),
+		// TODO(mattmoor): Incorporate resourceVersion bounds based on staleness criteria.
+	})
+	if err != nil {
+		return nil, err
+	}
+	for idx := range lo.Items {
+		ret = append(ret, &lo.Items[idx])
+	}
+	return ret, nil
+}
+
+func (w *wrapper) Get(name string) (*apisbindingsv1alpha1.GitLabBinding, error) {
+	return w.client.BindingsV1alpha1().GitLabBindings(w.namespace).Get(context.TODO(), name, v1.GetOptions{
+		// TODO(mattmoor): Incorporate resourceVersion bounds based on staleness criteria.
+	})
 }

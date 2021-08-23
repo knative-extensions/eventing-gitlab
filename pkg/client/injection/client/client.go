@@ -20,25 +20,46 @@ package client
 
 import (
 	context "context"
+	json "encoding/json"
+	errors "errors"
+	fmt "fmt"
 
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	unstructured "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
+	discovery "k8s.io/client-go/discovery"
+	dynamic "k8s.io/client-go/dynamic"
 	rest "k8s.io/client-go/rest"
+	v1alpha1 "knative.dev/eventing-gitlab/pkg/apis/bindings/v1alpha1"
+	sourcesv1alpha1 "knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	versioned "knative.dev/eventing-gitlab/pkg/client/clientset/versioned"
+	typedbindingsv1alpha1 "knative.dev/eventing-gitlab/pkg/client/clientset/versioned/typed/bindings/v1alpha1"
+	typedsourcesv1alpha1 "knative.dev/eventing-gitlab/pkg/client/clientset/versioned/typed/sources/v1alpha1"
 	injection "knative.dev/pkg/injection"
+	dynamicclient "knative.dev/pkg/injection/clients/dynamicclient"
 	logging "knative.dev/pkg/logging"
 )
 
 func init() {
-	injection.Default.RegisterClient(withClient)
+	injection.Default.RegisterClient(withClientFromConfig)
 	injection.Default.RegisterClientFetcher(func(ctx context.Context) interface{} {
 		return Get(ctx)
 	})
+	injection.Dynamic.RegisterDynamicClient(withClientFromDynamic)
 }
 
 // Key is used as the key for associating information with a context.Context.
 type Key struct{}
 
-func withClient(ctx context.Context, cfg *rest.Config) context.Context {
+func withClientFromConfig(ctx context.Context, cfg *rest.Config) context.Context {
 	return context.WithValue(ctx, Key{}, versioned.NewForConfigOrDie(cfg))
+}
+
+func withClientFromDynamic(ctx context.Context) context.Context {
+	return context.WithValue(ctx, Key{}, &wrapClient{dyn: dynamicclient.Get(ctx)})
 }
 
 // Get extracts the versioned.Interface client from the context.
@@ -54,4 +75,317 @@ func Get(ctx context.Context) versioned.Interface {
 		}
 	}
 	return untyped.(versioned.Interface)
+}
+
+type wrapClient struct {
+	dyn dynamic.Interface
+}
+
+var _ versioned.Interface = (*wrapClient)(nil)
+
+func (w *wrapClient) Discovery() discovery.DiscoveryInterface {
+	panic("Discovery called on dynamic client!")
+}
+
+func convert(from interface{}, to runtime.Object) error {
+	bs, err := json.Marshal(from)
+	if err != nil {
+		return fmt.Errorf("Marshal() = %w", err)
+	}
+	if err := json.Unmarshal(bs, to); err != nil {
+		return fmt.Errorf("Unmarshal() = %w", err)
+	}
+	return nil
+}
+
+// BindingsV1alpha1 retrieves the BindingsV1alpha1Client
+func (w *wrapClient) BindingsV1alpha1() typedbindingsv1alpha1.BindingsV1alpha1Interface {
+	return &wrapBindingsV1alpha1{
+		dyn: w.dyn,
+	}
+}
+
+type wrapBindingsV1alpha1 struct {
+	dyn dynamic.Interface
+}
+
+func (w *wrapBindingsV1alpha1) RESTClient() rest.Interface {
+	panic("RESTClient called on dynamic client!")
+}
+
+func (w *wrapBindingsV1alpha1) GitLabBindings(namespace string) typedbindingsv1alpha1.GitLabBindingInterface {
+	return &wrapBindingsV1alpha1GitLabBindingImpl{
+		dyn: w.dyn.Resource(schema.GroupVersionResource{
+			Group:    "bindings.knative.dev",
+			Version:  "v1alpha1",
+			Resource: "gitlabbindings",
+		}),
+
+		namespace: namespace,
+	}
+}
+
+type wrapBindingsV1alpha1GitLabBindingImpl struct {
+	dyn dynamic.NamespaceableResourceInterface
+
+	namespace string
+}
+
+var _ typedbindingsv1alpha1.GitLabBindingInterface = (*wrapBindingsV1alpha1GitLabBindingImpl)(nil)
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) Create(ctx context.Context, in *v1alpha1.GitLabBinding, opts v1.CreateOptions) (*v1alpha1.GitLabBinding, error) {
+	in.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "bindings.knative.dev",
+		Version: "v1alpha1",
+		Kind:    "GitLabBinding",
+	})
+	uo := &unstructured.Unstructured{}
+	if err := convert(in, uo); err != nil {
+		return nil, err
+	}
+	uo, err := w.dyn.Namespace(w.namespace).Create(ctx, uo, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &v1alpha1.GitLabBinding{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
+	return w.dyn.Namespace(w.namespace).Delete(ctx, name, opts)
+}
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
+	return w.dyn.Namespace(w.namespace).DeleteCollection(ctx, opts, listOpts)
+}
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) Get(ctx context.Context, name string, opts v1.GetOptions) (*v1alpha1.GitLabBinding, error) {
+	uo, err := w.dyn.Namespace(w.namespace).Get(ctx, name, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &v1alpha1.GitLabBinding{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) List(ctx context.Context, opts v1.ListOptions) (*v1alpha1.GitLabBindingList, error) {
+	uo, err := w.dyn.Namespace(w.namespace).List(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &v1alpha1.GitLabBindingList{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.GitLabBinding, err error) {
+	uo, err := w.dyn.Namespace(w.namespace).Patch(ctx, name, pt, data, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &v1alpha1.GitLabBinding{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) Update(ctx context.Context, in *v1alpha1.GitLabBinding, opts v1.UpdateOptions) (*v1alpha1.GitLabBinding, error) {
+	in.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "bindings.knative.dev",
+		Version: "v1alpha1",
+		Kind:    "GitLabBinding",
+	})
+	uo := &unstructured.Unstructured{}
+	if err := convert(in, uo); err != nil {
+		return nil, err
+	}
+	uo, err := w.dyn.Namespace(w.namespace).Update(ctx, uo, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &v1alpha1.GitLabBinding{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) UpdateStatus(ctx context.Context, in *v1alpha1.GitLabBinding, opts v1.UpdateOptions) (*v1alpha1.GitLabBinding, error) {
+	in.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "bindings.knative.dev",
+		Version: "v1alpha1",
+		Kind:    "GitLabBinding",
+	})
+	uo := &unstructured.Unstructured{}
+	if err := convert(in, uo); err != nil {
+		return nil, err
+	}
+	uo, err := w.dyn.Namespace(w.namespace).UpdateStatus(ctx, uo, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &v1alpha1.GitLabBinding{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapBindingsV1alpha1GitLabBindingImpl) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
+	return nil, errors.New("NYI: Watch")
+}
+
+// SourcesV1alpha1 retrieves the SourcesV1alpha1Client
+func (w *wrapClient) SourcesV1alpha1() typedsourcesv1alpha1.SourcesV1alpha1Interface {
+	return &wrapSourcesV1alpha1{
+		dyn: w.dyn,
+	}
+}
+
+type wrapSourcesV1alpha1 struct {
+	dyn dynamic.Interface
+}
+
+func (w *wrapSourcesV1alpha1) RESTClient() rest.Interface {
+	panic("RESTClient called on dynamic client!")
+}
+
+func (w *wrapSourcesV1alpha1) GitLabSources(namespace string) typedsourcesv1alpha1.GitLabSourceInterface {
+	return &wrapSourcesV1alpha1GitLabSourceImpl{
+		dyn: w.dyn.Resource(schema.GroupVersionResource{
+			Group:    "sources.knative.dev",
+			Version:  "v1alpha1",
+			Resource: "gitlabsources",
+		}),
+
+		namespace: namespace,
+	}
+}
+
+type wrapSourcesV1alpha1GitLabSourceImpl struct {
+	dyn dynamic.NamespaceableResourceInterface
+
+	namespace string
+}
+
+var _ typedsourcesv1alpha1.GitLabSourceInterface = (*wrapSourcesV1alpha1GitLabSourceImpl)(nil)
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) Create(ctx context.Context, in *sourcesv1alpha1.GitLabSource, opts v1.CreateOptions) (*sourcesv1alpha1.GitLabSource, error) {
+	in.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "sources.knative.dev",
+		Version: "v1alpha1",
+		Kind:    "GitLabSource",
+	})
+	uo := &unstructured.Unstructured{}
+	if err := convert(in, uo); err != nil {
+		return nil, err
+	}
+	uo, err := w.dyn.Namespace(w.namespace).Create(ctx, uo, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &sourcesv1alpha1.GitLabSource{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
+	return w.dyn.Namespace(w.namespace).Delete(ctx, name, opts)
+}
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
+	return w.dyn.Namespace(w.namespace).DeleteCollection(ctx, opts, listOpts)
+}
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) Get(ctx context.Context, name string, opts v1.GetOptions) (*sourcesv1alpha1.GitLabSource, error) {
+	uo, err := w.dyn.Namespace(w.namespace).Get(ctx, name, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &sourcesv1alpha1.GitLabSource{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) List(ctx context.Context, opts v1.ListOptions) (*sourcesv1alpha1.GitLabSourceList, error) {
+	uo, err := w.dyn.Namespace(w.namespace).List(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &sourcesv1alpha1.GitLabSourceList{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *sourcesv1alpha1.GitLabSource, err error) {
+	uo, err := w.dyn.Namespace(w.namespace).Patch(ctx, name, pt, data, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &sourcesv1alpha1.GitLabSource{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) Update(ctx context.Context, in *sourcesv1alpha1.GitLabSource, opts v1.UpdateOptions) (*sourcesv1alpha1.GitLabSource, error) {
+	in.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "sources.knative.dev",
+		Version: "v1alpha1",
+		Kind:    "GitLabSource",
+	})
+	uo := &unstructured.Unstructured{}
+	if err := convert(in, uo); err != nil {
+		return nil, err
+	}
+	uo, err := w.dyn.Namespace(w.namespace).Update(ctx, uo, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &sourcesv1alpha1.GitLabSource{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) UpdateStatus(ctx context.Context, in *sourcesv1alpha1.GitLabSource, opts v1.UpdateOptions) (*sourcesv1alpha1.GitLabSource, error) {
+	in.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "sources.knative.dev",
+		Version: "v1alpha1",
+		Kind:    "GitLabSource",
+	})
+	uo := &unstructured.Unstructured{}
+	if err := convert(in, uo); err != nil {
+		return nil, err
+	}
+	uo, err := w.dyn.Namespace(w.namespace).UpdateStatus(ctx, uo, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &sourcesv1alpha1.GitLabSource{}
+	if err := convert(uo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (w *wrapSourcesV1alpha1GitLabSourceImpl) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
+	return nil, errors.New("NYI: Watch")
 }
