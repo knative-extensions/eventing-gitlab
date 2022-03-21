@@ -117,7 +117,7 @@ func (c *FakeGitLabSources) UpdateStatus(ctx context.Context, gitLabSource *v1al
 // Delete takes name of the gitLabSource and deletes it. Returns an error if one occurs.
 func (c *FakeGitLabSources) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteAction(gitlabsourcesResource, c.ns, name), &v1alpha1.GitLabSource{})
+		Invokes(testing.NewDeleteActionWithOptions(gitlabsourcesResource, c.ns, name, opts), &v1alpha1.GitLabSource{})
 
 	return err
 }
