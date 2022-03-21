@@ -117,7 +117,7 @@ func (c *FakeGitLabBindings) UpdateStatus(ctx context.Context, gitLabBinding *v1
 // Delete takes name of the gitLabBinding and deletes it. Returns an error if one occurs.
 func (c *FakeGitLabBindings) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteAction(gitlabbindingsResource, c.ns, name), &v1alpha1.GitLabBinding{})
+		Invokes(testing.NewDeleteActionWithOptions(gitlabbindingsResource, c.ns, name, opts), &v1alpha1.GitLabBinding{})
 
 	return err
 }
