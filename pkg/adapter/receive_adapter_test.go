@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -191,7 +191,7 @@ func (tc *testCase) runner(t *testing.T, url string, ceClient *adaptertest.TestC
 			t.Errorf("Unexpected status code: %s", resp.Status)
 		}
 
-		respBody, err := ioutil.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Error(err)
 		}
