@@ -23,7 +23,6 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labels "k8s.io/apimachinery/pkg/labels"
-	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	testing "k8s.io/client-go/testing"
@@ -36,9 +35,9 @@ type FakeGitLabBindings struct {
 	ns   string
 }
 
-var gitlabbindingsResource = schema.GroupVersionResource{Group: "bindings.knative.dev", Version: "v1alpha1", Resource: "gitlabbindings"}
+var gitlabbindingsResource = v1alpha1.SchemeGroupVersion.WithResource("gitlabbindings")
 
-var gitlabbindingsKind = schema.GroupVersionKind{Group: "bindings.knative.dev", Version: "v1alpha1", Kind: "GitLabBinding"}
+var gitlabbindingsKind = v1alpha1.SchemeGroupVersion.WithKind("GitLabBinding")
 
 // Get takes name of the gitLabBinding, and returns the corresponding gitLabBinding object, and an error if there is any.
 func (c *FakeGitLabBindings) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.GitLabBinding, err error) {
