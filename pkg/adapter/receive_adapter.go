@@ -92,8 +92,10 @@ func (ra *gitLabReceiveAdapter) start(stopCh <-chan struct{}) error {
 	}
 
 	server := &http.Server{
-		Addr:    ":" + ra.port,
-		Handler: ra.newRouter(hook),
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		Addr:              ":" + ra.port,
+		Handler:           ra.newRouter(hook),
 	}
 
 	var wg sync.WaitGroup
