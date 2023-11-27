@@ -27,25 +27,26 @@ import (
 	"knative.dev/eventing-gitlab/pkg/secret"
 	"knative.dev/pkg/apis"
 
-	gitlab "github.com/xanzy/go-gitlab"
+	"github.com/xanzy/go-gitlab"
 )
+
+type Webhook struct {
+	*gitlab.ProjectHook
+	*gitlab.GroupHook
+}
 
 // WebhookClient is a client which can interact with the webhook configuration
 // of a GitLab project.
 type WebhookClient interface {
-	Get(hookID int) (*gitlab.ProjectHook, error)
+	Get(hookID int) (*Webhook, error)
 	Add(eventTypes []string, webhookURL *apis.URL, tls bool) (hookID int, err error)
 	Edit(hookID int, eventTypes []string, webhookURL *apis.URL, tls bool) error
 	Delete(hookID int) error
 }
 
-// webhookClient is the default implementation of WebhookClient.
 type webhookClient struct {
 	// GitLab API client.
 	cli *gitlab.Client
-
-	// Name of the GitLab project.
-	projectName string
 
 	// Optional user-defined token used to validate requests to webhooks.
 	//
@@ -57,21 +58,29 @@ type webhookClient struct {
 	secretToken *string
 }
 
-// webhookClient implements WebhookClient.
-var _ WebhookClient = (*webhookClient)(nil)
+// projectWebhookClient is the default implementation of WebhookClient.
+type projectWebhookClient struct {
+	webhookClient
+
+	// Name of the GitLab project.
+	projectName string
+}
+
+// projectWebhookClient implements WebhookClient.
+var _ WebhookClient = (*projectWebhookClient)(nil)
 
 // Get adds a new hook to the client's GitLab project.
-func (c *webhookClient) Get(hookID int) (*gitlab.ProjectHook, error) {
+func (c *projectWebhookClient) Get(hookID int) (*Webhook, error) {
 	hook, _, err := c.cli.Projects.GetProjectHook(c.projectName, hookID)
 	if err != nil {
 		return nil, fmt.Errorf("getting webhook from project %q: %w", c.projectName, err)
 	}
 
-	return hook, nil
+	return &Webhook{hook, nil}, nil
 }
 
 // Add adds a new hook to the client's GitLab project.
-func (c *webhookClient) Add(eventTypes []string, webhookURL *apis.URL, tls bool) (hookID int, err error) {
+func (c *projectWebhookClient) Add(eventTypes []string, webhookURL *apis.URL, tls bool) (hookID int, err error) {
 	enabled := true
 
 	hookOptions := gitlab.AddProjectHookOptions{
@@ -117,7 +126,7 @@ func (c *webhookClient) Add(eventTypes []string, webhookURL *apis.URL, tls bool)
 }
 
 // Edit edits the configuration of a hook in the client's GitLab project.
-func (c *webhookClient) Edit(hookID int, eventTypes []string, webhookURL *apis.URL, tls bool) error {
+func (c *projectWebhookClient) Edit(hookID int, eventTypes []string, webhookURL *apis.URL, tls bool) error {
 	enabled, disabled := true, false
 
 	hookOptions := gitlab.EditProjectHookOptions{
@@ -173,9 +182,141 @@ func (c *webhookClient) Edit(hookID int, eventTypes []string, webhookURL *apis.U
 }
 
 // Delete removes the webhook matching the client's configuration from a GitLab project.
-func (c *webhookClient) Delete(hookID int) error {
+func (c *projectWebhookClient) Delete(hookID int) error {
 	if _, err := c.cli.Projects.DeleteProjectHook(c.projectName, hookID); err != nil {
 		return fmt.Errorf("deleting webhook from project %q: %w", c.projectName, err)
+	}
+
+	return nil
+}
+
+// groupWebhookClient is the alternative implementation of WebhookClient.
+type groupWebhookClient struct {
+	webhookClient
+
+	// Name of the GitLab group.
+	groupName string
+}
+
+// groupWebhookClient implements WebhookClient.
+var _ WebhookClient = (*groupWebhookClient)(nil)
+
+// Get adds a new hook to the client's GitLab project.
+func (c *groupWebhookClient) Get(hookID int) (*Webhook, error) {
+	hook, _, err := c.cli.Groups.GetGroupHook(c.groupName, hookID)
+	if err != nil {
+		return nil, fmt.Errorf("getting webhook from group %q: %w", c.groupName, err)
+	}
+
+	return &Webhook{nil, hook}, nil
+}
+
+// Add adds a new hook to the client's GitLab project.
+func (c *groupWebhookClient) Add(eventTypes []string, webhookURL *apis.URL, tls bool) (hookID int, err error) {
+	enabled := true
+
+	hookOptions := gitlab.AddGroupHookOptions{
+		URL:                   gitlab.String(webhookURL.String()),
+		EnableSSLVerification: &tls,
+		Token:                 c.secretToken,
+	}
+
+	for _, eventType := range eventTypes {
+		switch eventType {
+		case v1alpha1.GitLabWebhookConfidentialIssues:
+			hookOptions.ConfidentialIssuesEvents = &enabled
+		case v1alpha1.GitLabWebhookConfidentialNote:
+			hookOptions.ConfidentialNoteEvents = &enabled
+		// NOTE(antoineco): not supported in this version of xanzy/go-gitlab (v0.39.0)
+		//case v1alpha1.GitLabWebhookDeployment:
+		//	hookOptions.DeploymentEvents = &enabled
+		case v1alpha1.GitLabWebhookIssues:
+			hookOptions.IssuesEvents = &enabled
+		case v1alpha1.GitLabWebhookJob:
+			hookOptions.JobEvents = &enabled
+		case v1alpha1.GitLabWebhookMergeRequests:
+			hookOptions.MergeRequestsEvents = &enabled
+		case v1alpha1.GitLabWebhookNote:
+			hookOptions.NoteEvents = &enabled
+		case v1alpha1.GitLabWebhookPipeline:
+			hookOptions.PipelineEvents = &enabled
+		case v1alpha1.GitLabWebhookPush:
+			hookOptions.PushEvents = &enabled
+		case v1alpha1.GitLabWebhookTagPush:
+			hookOptions.TagPushEvents = &enabled
+		case v1alpha1.GitLabWebhookWikiPage:
+			hookOptions.WikiPageEvents = &enabled
+		}
+	}
+
+	hook, _, err := c.cli.Groups.AddGroupHook(c.groupName, &hookOptions)
+	if err != nil {
+		return -1, fmt.Errorf("adding webhook to group %q: %w", c.groupName, err)
+	}
+
+	return hook.ID, nil
+}
+
+// Edit edits the configuration of a hook in the client's GitLab project.
+func (c *groupWebhookClient) Edit(hookID int, eventTypes []string, webhookURL *apis.URL, tls bool) error {
+	enabled, disabled := true, false
+
+	hookOptions := gitlab.EditGroupHookOptions{
+		URL:                   gitlab.String(webhookURL.String()),
+		EnableSSLVerification: &tls,
+		Token:                 c.secretToken,
+
+		ConfidentialIssuesEvents: &disabled,
+		ConfidentialNoteEvents:   &disabled,
+		IssuesEvents:             &disabled,
+		JobEvents:                &disabled,
+		MergeRequestsEvents:      &disabled,
+		NoteEvents:               &disabled,
+		PipelineEvents:           &disabled,
+		PushEvents:               &disabled,
+		TagPushEvents:            &disabled,
+		WikiPageEvents:           &disabled,
+	}
+
+	for _, eventType := range eventTypes {
+		switch eventType {
+		case v1alpha1.GitLabWebhookConfidentialIssues:
+			hookOptions.ConfidentialIssuesEvents = &enabled
+		case v1alpha1.GitLabWebhookConfidentialNote:
+			hookOptions.ConfidentialNoteEvents = &enabled
+		// NOTE(antoineco): not supported in this version of xanzy/go-gitlab (v0.39.0)
+		//case v1alpha1.GitLabWebhookDeployment:
+		//	hookOptions.DeploymentEvents = &enabled
+		case v1alpha1.GitLabWebhookIssues:
+			hookOptions.IssuesEvents = &enabled
+		case v1alpha1.GitLabWebhookJob:
+			hookOptions.JobEvents = &enabled
+		case v1alpha1.GitLabWebhookMergeRequests:
+			hookOptions.MergeRequestsEvents = &enabled
+		case v1alpha1.GitLabWebhookNote:
+			hookOptions.NoteEvents = &enabled
+		case v1alpha1.GitLabWebhookPipeline:
+			hookOptions.PipelineEvents = &enabled
+		case v1alpha1.GitLabWebhookPush:
+			hookOptions.PushEvents = &enabled
+		case v1alpha1.GitLabWebhookTagPush:
+			hookOptions.TagPushEvents = &enabled
+		case v1alpha1.GitLabWebhookWikiPage:
+			hookOptions.WikiPageEvents = &enabled
+		}
+	}
+
+	if _, _, err := c.cli.Groups.EditGroupHook(c.groupName, hookID, &hookOptions); err != nil {
+		return fmt.Errorf("editing webhook in group %q: %w", c.groupName, err)
+	}
+
+	return nil
+}
+
+// Delete removes the webhook matching the client's configuration from a GitLab project.
+func (c *groupWebhookClient) Delete(hookID int) error {
+	if _, err := c.cli.Groups.DeleteGroupHook(c.groupName, hookID); err != nil {
+		return fmt.Errorf("deleting webhook from group %q: %w", c.groupName, err)
 	}
 
 	return nil
@@ -207,7 +348,8 @@ var _ WebhookClientGetter = (*WebhookClientGetterWithSecretGetter)(nil)
 
 // Get implements ClientGetter.
 func (g *WebhookClientGetterWithSecretGetter) Get(src *v1alpha1.GitLabSource) (WebhookClient, error) {
-	baseURL, projectName, err := splitGitLabProjectURL(src.Spec.ProjectURL)
+	projectOrGroupUrl, isProject, isGroup := getProjectOrGroupURL(src.Spec)
+	baseURL, projectOrGroupName, err := splitGitLabProjectOrGroupURL(projectOrGroupUrl)
 	if err != nil {
 		return nil, fmt.Errorf("reading components from the given project URL: %w", err)
 	}
@@ -233,30 +375,59 @@ func (g *WebhookClientGetterWithSecretGetter) Get(src *v1alpha1.GitLabSource) (W
 		secretTokenPtr = &secretToken
 	}
 
-	webhookCli := &webhookClient{
+	innerWebhookClient := webhookClient{
 		cli:         cli,
-		projectName: projectName,
 		secretToken: secretTokenPtr,
+	}
+
+	var webhookCli WebhookClient
+
+	if isProject {
+		webhookCli = &projectWebhookClient{
+			webhookClient: innerWebhookClient,
+			projectName:   projectOrGroupName,
+		}
+	} else if isGroup {
+		webhookCli = &groupWebhookClient{
+			webhookClient: innerWebhookClient,
+			groupName:     projectOrGroupName,
+		}
+	} else {
+		return nil, fmt.Errorf("creating a GitLab client requires either a project or group url")
 	}
 
 	return webhookCli, nil
 }
 
-// splitGitLabProjectURL returns the base URL and the project name components
-// contained in the given GitLab project URL.
+func getProjectOrGroupURL(s v1alpha1.GitLabSourceSpec) (url string, isProject bool, isGroup bool) {
+	if s.ProjectURL != "" {
+		url = s.ProjectURL
+		isProject = true
+		isGroup = true
+	} else if s.GroupURL != "" {
+		url = s.GroupURL
+		isProject = false
+		isGroup = true
+	}
+
+	return url, isProject, isGroup
+}
+
+// splitGitLabProjectOrGroupURL returns the base URL and the project or group name components
+// contained in the given GitLab project or group URL.
 // Example: given the project URL "https://gitlab.example.com/myuser/myproject",
 // the returned base URL and project name are respectively "https://gitlab.example.com"
 // and "myuser/myproject".
-func splitGitLabProjectURL(projectURL string) (baseURL, projectName string, err error) {
-	u, err := url.Parse(projectURL)
+func splitGitLabProjectOrGroupURL(projectOrGroupURL string) (baseURL, projectOrGroupName string, err error) {
+	u, err := url.Parse(projectOrGroupURL)
 	if err != nil {
-		return "", "", fmt.Errorf("parsing project URL %q: %w", projectURL, err)
+		return "", "", fmt.Errorf("parsing project/group URL %q: %w", projectOrGroupURL, err)
 	}
 
-	projectName = u.Path[1:]
-	baseURL = strings.TrimSuffix(projectURL, projectName)
+	projectOrGroupName = u.Path[1:]
+	baseURL = strings.TrimSuffix(projectOrGroupURL, projectOrGroupName)
 
-	return baseURL, projectName, nil
+	return baseURL, projectOrGroupName, nil
 }
 
 // WebhookClientGetterFunc allows the use of ordinary functions as WebhookClientGetter.
