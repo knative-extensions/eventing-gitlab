@@ -348,10 +348,14 @@ var _ WebhookClientGetter = (*WebhookClientGetterWithSecretGetter)(nil)
 
 // Get implements ClientGetter.
 func (g *WebhookClientGetterWithSecretGetter) Get(src *v1alpha1.GitLabSource) (WebhookClient, error) {
-	projectOrGroupUrl, isProject, isGroup := getProjectOrGroupURL(src.Spec)
+	projectOrGroupUrl, isProject, isGroup, err := getProjectOrGroupURL(src.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("reading the project or group url from the gitlab source spec: %w", err)
+	}
+
 	baseURL, projectOrGroupName, err := splitGitLabProjectOrGroupURL(projectOrGroupUrl)
 	if err != nil {
-		return nil, fmt.Errorf("reading components from the given project URL: %w", err)
+		return nil, fmt.Errorf("reading components from the given project/group URL: %w", err)
 	}
 
 	requestedSecrets, err := secret.NewGetter(g.sg(src.Namespace)).Get(
@@ -399,18 +403,22 @@ func (g *WebhookClientGetterWithSecretGetter) Get(src *v1alpha1.GitLabSource) (W
 	return webhookCli, nil
 }
 
-func getProjectOrGroupURL(s v1alpha1.GitLabSourceSpec) (url string, isProject bool, isGroup bool) {
+func getProjectOrGroupURL(s v1alpha1.GitLabSourceSpec) (url string, isProject bool, isGroup bool, err error) {
 	if s.ProjectURL != "" {
 		url = s.ProjectURL
 		isProject = true
-		isGroup = true
+		isGroup = false
 	} else if s.GroupURL != "" {
 		url = s.GroupURL
 		isProject = false
 		isGroup = true
+	} else {
+		isProject = false
+		isGroup = false
+		err = fmt.Errorf("project or group url not found in gitlab source spec")
 	}
 
-	return url, isProject, isGroup
+	return url, isProject, isGroup, err
 }
 
 // splitGitLabProjectOrGroupURL returns the base URL and the project or group name components
