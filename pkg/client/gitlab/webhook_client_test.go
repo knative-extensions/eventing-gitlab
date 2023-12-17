@@ -40,10 +40,10 @@ func TestWebhookClientGetterReturnsExpectedWebhookClient(t *testing.T) {
 		"GitLab GroupURL": {
 			Spec: &v1alpha1.GitLabSource{
 				Spec: v1alpha1.GitLabSourceSpec{
-					ProjectURL: "https://gitlab.com/project",
+					GroupURL: "https://gitlab.com/group",
 				},
 			},
-			ExpectedType: &projectWebhookClient{},
+			ExpectedType: &groupWebhookClient{},
 		},
 	}
 
