@@ -48,8 +48,15 @@ type GitLabSourceSpec struct {
 	// to receive events from.
 	// Examples:
 	//   https://gitlab.com/gitlab-org/gitlab-foss
-	// +kubebuilder:validation:MinLength=1
-	ProjectURL string `json:"projectUrl"`
+	// +optional
+	ProjectURL string `json:"projectUrl,omitempty"`
+
+	// GroupURL is the url of the GitLab group for which we are interested
+	// to receive events from.
+	// Examples:
+	//   https://gitlab.com/gitlab-org/gitlab-foss
+	// +optional
+	GroupURL string `json:"groupUrl,omitempty"`
 
 	// List of webhooks to enable on the selected GitLab project.
 	// Those correspond to the attributes enumerated at
