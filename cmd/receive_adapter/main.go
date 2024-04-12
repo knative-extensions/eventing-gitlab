@@ -20,8 +20,14 @@ import (
 	"knative.dev/eventing/pkg/adapter/v2"
 
 	gitlabadapter "knative.dev/eventing-gitlab/pkg/adapter"
+	"knative.dev/pkg/injection"
+	"knative.dev/pkg/signals"
 )
 
 func main() {
-	adapter.Main("gitlabsource", gitlabadapter.NewEnvConfig, gitlabadapter.NewAdapter)
+	ctx := signals.NewContext()
+	cfg := injection.ParseAndGetRESTConfigOrDie()
+	ctx, _ = injection.Default.SetupInformers(ctx, cfg)
+
+	adapter.MainWithContext(ctx, "gitlabsource", gitlabadapter.NewEnvConfig, gitlabadapter.NewAdapter)
 }
