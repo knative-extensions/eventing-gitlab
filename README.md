@@ -6,7 +6,7 @@
 | Sponsoring WG | [Eventing](https://github.com/knative/community/blob/main/working-groups/WORKING-GROUPS.md#eventing)               |
 
 The Knative GitLab Source registers for events of the specified types on the
-specified GitLab organization or repository, and brings those events into
+specified GitLab group or project, and brings those events into
 Knative. The GiLabSource fires a new event for selected GitLab event types.
 
 ---
