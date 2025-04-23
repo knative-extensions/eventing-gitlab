@@ -169,7 +169,7 @@ func (ra *gitLabReceiveAdapter) handleEvent(payload interface{}, header http.Hea
 	eventHeader := header.Get(glHeaderEvent)
 	eventType := gitlabEventHeaderToEventType(eventHeader)
 	if eventType == "" {
-		return fmt.Errorf("invalid webhook event type " + eventHeader)
+		return fmt.Errorf("invalid webhook event type %s", eventHeader)
 	}
 
 	ceType := sourcesv1alpha1.GitLabEventType(eventType)
