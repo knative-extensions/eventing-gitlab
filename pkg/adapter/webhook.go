@@ -1,13 +1,28 @@
+/*
+Copyright 2020 The Knative Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package adapter
 
+// ref: https://gitlab.com/gitlab-org/api/client-go/-/blob/main/examples/webhook.go?ref_type=heads
+
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"slices"
 	"strings"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
@@ -18,19 +33,23 @@ var (
 	ErrEventNotSpecifiedToParse      = errors.New("event not defined to be parsed")
 	ErrReadingfRequestBody           = errors.New("error reading request body")
 	ErrGitLabTokenVerificationFailed = errors.New("token validation failed")
+	ErrCouldNotParseWebhookEvent     = errors.New("could parse the webhook event")
+	ErrCouldNotHandleEvent           = errors.New("error handling the event")
 )
+
+type EventSender func(payload interface{}, header http.Header) error
 
 // webhook is a HTTP Handler for Gitlab Webhook events.
 type webhook struct {
-	Secret         string
-	EventsToAccept []gitlab.EventType
+	Secret      string
+	EventSender EventSender
 }
 
 // webhookExample shows how to create a Webhook server to parse Gitlab events.
-func NewWebhookHandler(secret string) webhook {
+func NewWebhookHandler(secret string, sender EventSender) webhook {
 	wh := webhook{
-		Secret:         secret,
-		EventsToAccept: []gitlab.EventType{},
+		Secret:      secret,
+		EventSender: sender,
 	}
 
 	return wh
@@ -41,32 +60,20 @@ func NewWebhookHandler(secret string) webhook {
 func (hook webhook) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	event, err := hook.parse(request)
 	if err != nil {
-		writer.WriteHeader(500)
-		fmt.Fprintf(writer, "could parse the webhook event: %v", err)
+		writer.WriteHeader(400)
+		fmt.Fprintf(writer, "%v: %v", ErrCouldNotParseWebhookEvent, err)
 		return
 	}
 
 	// Handle the event before we return.
-	if err := hook.handle(event); err != nil {
+	if err := hook.EventSender(event, request.Header); err != nil {
 		writer.WriteHeader(500)
-		fmt.Fprintf(writer, "error handling the event: %v", err)
+		fmt.Fprintf(writer, "%v: %v", ErrCouldNotHandleEvent, err)
 		return
 	}
 
 	// Write a response when were done.
-	writer.WriteHeader(204)
-}
-
-func (hook webhook) handle(event any) error {
-	str, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("could not marshal json event for logging: %v", err)
-	}
-
-	// Just write the event for this example.
-	fmt.Println(string(str))
-
-	return nil
+	writer.WriteHeader(202)
 }
 
 // parse verifies and parses the events specified in the request and
@@ -89,7 +96,7 @@ func (hook webhook) parse(r *http.Request) (any, error) {
 	if len(hook.Secret) > 0 {
 		signature := r.Header.Get("X-Gitlab-Token")
 		if signature != hook.Secret {
-			return nil, errors.New("token validation failed")
+			return nil, ErrGitLabTokenVerificationFailed
 		}
 	}
 
@@ -99,9 +106,6 @@ func (hook webhook) parse(r *http.Request) (any, error) {
 	}
 
 	eventType := gitlab.EventType(event)
-	if !isEventSubscribed(eventType, hook.EventsToAccept) {
-		return nil, ErrEventNotSpecifiedToParse
-	}
 
 	payload, err := io.ReadAll(r.Body)
 	if err != nil || len(payload) == 0 {
@@ -109,8 +113,4 @@ func (hook webhook) parse(r *http.Request) (any, error) {
 	}
 
 	return gitlab.ParseWebhook(eventType, payload)
-}
-
-func isEventSubscribed(event gitlab.EventType, events []gitlab.EventType) bool {
-	return slices.Contains(events, event)
 }
