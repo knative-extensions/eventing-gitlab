@@ -172,6 +172,7 @@ func eventParsing(gitLabEvent Event, events []Event, payload []byte) (interface{
 		var pl BuildEventPayload
 		err := json.Unmarshal([]byte(payload), &pl)
 		return pl, err
+
 	case JobEvents:
 		var p1 JobEventPayload
 		err := json.Unmarshal([]byte(payload), &p1)
