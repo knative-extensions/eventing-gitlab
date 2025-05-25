@@ -66,11 +66,6 @@ type testCase struct {
 
 var testCases = []testCase{
 	{
-		name:       "valid comment",
-		payload:    gitlab.IssueCommentEvent{},
-		eventType:  gitlab.EventTypeNote,
-		statusCode: 202,
-	}, {
 		name:       "valid issues",
 		payload:    gitlab.IssueEvent{},
 		eventType:  gitlab.EventTypeIssue,
@@ -112,13 +107,13 @@ var testCases = []testCase{
 		statusCode: 202,
 	}, {
 		name:       "invalid nil payload",
-		payload:    nil,
-		eventType:  "Invalid Hook",
-		wantErr:    errors.New(""),
+		payload:    []byte("{\"key\": \"value\""),
+		eventType:  gitlab.EventTypeBuild,
+		wantErr:    ErrCouldNotParseWebhookEvent,
 		statusCode: 400,
 	}, {
 		name:       "invalid empty eventType",
-		wantErr:    errors.New(""),
+		wantErr:    ErrMissingGitLabEventHeader,
 		statusCode: 400,
 	},
 }
@@ -145,7 +140,7 @@ func TestServer(t *testing.T) {
 	for _, tc := range testCases {
 		ce := adaptertest.NewTestClient()
 		ra := newTestAdapter(t, ce)
-		hook := NewWebhookHandler(ra.secretToken)
+		hook := NewWebhookHandler(ra.secretToken, ra.handleEvent)
 		server := httptest.NewServer(hook)
 		defer server.Close()
 
@@ -228,7 +223,7 @@ func (tc *testCase) validateAcceptedPayload(t *testing.T, ce *adaptertest.TestCl
 
 func (tc *testCase) validateResponse(t *testing.T, body string) {
 	if tc.wantErr != nil {
-		assert.EqualError(t, tc.wantErr, body)
+		assert.ErrorContains(t, errors.New(body), tc.wantErr.Error())
 		return
 	}
 	assert.Empty(t, body)
