@@ -27,7 +27,7 @@ import (
 	"knative.dev/eventing-gitlab/pkg/secret"
 	"knative.dev/pkg/apis"
 
-	gitlab "github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // WebhookClient is a client which can interact with the webhook configuration
@@ -75,7 +75,7 @@ func (c *webhookClient) Add(eventTypes []string, webhookURL *apis.URL, tls bool)
 	enabled := true
 
 	hookOptions := gitlab.AddProjectHookOptions{
-		URL:                   gitlab.String(webhookURL.String()),
+		URL:                   gitlab.Ptr(webhookURL.String()),
 		EnableSSLVerification: &tls,
 		Token:                 c.secretToken,
 	}
@@ -121,7 +121,7 @@ func (c *webhookClient) Edit(hookID int, eventTypes []string, webhookURL *apis.U
 	enabled, disabled := true, false
 
 	hookOptions := gitlab.EditProjectHookOptions{
-		URL:                   gitlab.String(webhookURL.String()),
+		URL:                   gitlab.Ptr(webhookURL.String()),
 		EnableSSLVerification: &tls,
 		Token:                 c.secretToken,
 

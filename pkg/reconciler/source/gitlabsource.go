@@ -38,7 +38,7 @@ import (
 	servingclientv1 "knative.dev/serving/pkg/client/clientset/versioned/typed/serving/v1"
 	servinglisters "knative.dev/serving/pkg/client/listers/serving/v1"
 
-	gogitlab "github.com/xanzy/go-gitlab"
+	gogitlab "gitlab.com/gitlab-org/api/client-go"
 
 	"knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	"knative.dev/eventing-gitlab/pkg/client/gitlab"
