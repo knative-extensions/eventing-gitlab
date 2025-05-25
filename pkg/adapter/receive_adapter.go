@@ -84,7 +84,7 @@ func (ra *gitLabReceiveAdapter) Start(ctx context.Context) error {
 }
 
 func (ra *gitLabReceiveAdapter) start(stopCh <-chan struct{}) error {
-	wh := NewWebhookHandler(ra.secretToken)
+	wh := NewWebhookHandler(ra.secretToken, ra.handleEvent)
 
 	server := &http.Server{
 		ReadTimeout:       10 * time.Second,
