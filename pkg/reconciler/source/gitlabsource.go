@@ -41,7 +41,6 @@ import (
 	gogitlab "github.com/xanzy/go-gitlab"
 
 	"knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
-	sourcesv1alpha1 "knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	"knative.dev/eventing-gitlab/pkg/client/gitlab"
 )
 
@@ -61,7 +60,7 @@ type Reconciler struct {
 	configs source.ConfigAccessor
 }
 
-func (r *Reconciler) ReconcileKind(ctx context.Context, src *sourcesv1alpha1.GitLabSource) reconciler.Event {
+func (r *Reconciler) ReconcileKind(ctx context.Context, src *v1alpha1.GitLabSource) reconciler.Event {
 	src.Status.CloudEventAttributes = CreateCloudEventAttributes(src.AsEventSource(), src.EventTypes())
 
 	sinkURI, err := resolveSinkURL(ctx, r.sinkResolver, src)
@@ -102,7 +101,7 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, src *sourcesv1alpha1.Git
 	return nil
 }
 
-func (r *Reconciler) FinalizeKind(ctx context.Context, src *sourcesv1alpha1.GitLabSource) reconciler.Event {
+func (r *Reconciler) FinalizeKind(ctx context.Context, src *v1alpha1.GitLabSource) reconciler.Event {
 	currentHookID := src.Status.WebhookID
 
 	if currentHookID == nil {
@@ -141,7 +140,7 @@ func (r *Reconciler) FinalizeKind(ctx context.Context, src *sourcesv1alpha1.GitL
 
 // syncWebhook reconciles the GitLab project's webhook with its desired state.
 func syncWebhook(ctx context.Context, cg gitlab.WebhookClientGetter,
-	src *sourcesv1alpha1.GitLabSource, url *apis.URL) (hookID int, err error) {
+	src *v1alpha1.GitLabSource, url *apis.URL) (hookID int, err error) {
 
 	cli, err := cg.Get(src)
 	switch {
@@ -205,7 +204,7 @@ func syncWebhook(ctx context.Context, cg gitlab.WebhookClientGetter,
 }
 
 // resolveSinkURL resolves the URL of a sink reference.
-func resolveSinkURL(ctx context.Context, r *resolver.URIResolver, src *sourcesv1alpha1.GitLabSource) (*apis.URL, error) {
+func resolveSinkURL(ctx context.Context, r *resolver.URIResolver, src *v1alpha1.GitLabSource) (*apis.URL, error) {
 	sink := src.Spec.Sink
 
 	if sinkRef := &sink.Ref; *sinkRef != nil && (*sinkRef).Namespace == "" {
@@ -233,7 +232,7 @@ func (r *Reconciler) reconcileAdapter(ctx context.Context, src *v1alpha1.GitLabS
 	return adapter, nil
 }
 
-func (r *Reconciler) generateKnativeServiceObject(source *sourcesv1alpha1.GitLabSource, receiveAdapterImage string) *servingv1.Service {
+func (r *Reconciler) generateKnativeServiceObject(source *v1alpha1.GitLabSource, receiveAdapterImage string) *servingv1.Service {
 	labels := map[string]string{
 		"receive-adapter": "gitlab",
 	}
@@ -291,7 +290,7 @@ func (r *Reconciler) generateKnativeServiceObject(source *sourcesv1alpha1.GitLab
 	}
 }
 
-func (r *Reconciler) getOwnedKnativeService(ctx context.Context, source *sourcesv1alpha1.GitLabSource) (*servingv1.Service, error) {
+func (r *Reconciler) getOwnedKnativeService(ctx context.Context, source *v1alpha1.GitLabSource) (*servingv1.Service, error) {
 	list, err := r.ksvcCli(source.GetNamespace()).List(ctx, metav1.ListOptions{
 		LabelSelector: labels.Everything().String(),
 	})
