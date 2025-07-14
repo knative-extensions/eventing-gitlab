@@ -1,7 +1,7 @@
 //go:build integration
 
 /*
-Copyright 2021 The Knative Authors
+Copyright 2020 The Knative Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -124,6 +124,16 @@ func TestE2E_GitLabSourceWebhookIntegration(t *testing.T) {
 	webhookURL := gitlabSourceService.Status.URL.String()
 	t.Logf("GitLabSource webhook URL: %s", webhookURL)
 
+	// Start streaming event display logs in background
+	tracker := NewCloudEventTracker()
+	logCtx, cancelLogs := context.WithCancel(ctx)
+	defer cancelLogs()
+
+	go streamEventDisplayLogs(t, logCtx, k8sClient, testNamespace, tracker)
+
+	// Wait a moment for log streaming to start
+	time.Sleep(2 * time.Second)
+
 	// Now run the webhook simulation subtests with the discovered endpoint
 	t.Run("WebhookSimulation", func(t *testing.T) {
 		// Discover all webhook payload files in testdata
@@ -181,9 +191,30 @@ func TestE2E_GitLabSourceWebhookIntegration(t *testing.T) {
 				respBody, err := io.ReadAll(resp.Body)
 				require.NoError(t, err, "Failed to read response body")
 
+				t.Logf("Webhook response status: %d", resp.StatusCode)
+				if len(respBody) > 0 {
+					t.Logf("Webhook response body: %s", string(respBody))
+				}
+
 				// Verify the webhook was accepted (expecting 200-202 range)
 				assert.True(t, resp.StatusCode >= 200 && resp.StatusCode < 300,
 					"Expected successful response for %s webhook, got %d: %s", webhookType, resp.StatusCode, string(respBody))
+
+				// If webhook was accepted, verify that CloudEvents were produced
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+					expectedEventType := getExpectedCloudEventType(t, webhookType)
+					t.Logf("Waiting for CloudEvent of type: %s", expectedEventType)
+
+					// Use assert.Eventually to wait for the expected event type
+					assert.Eventually(t, func() bool {
+						return tracker.HasEventType(expectedEventType)
+					}, 30*time.Second, 1*time.Second,
+						"Expected CloudEvent type %s was not received within timeout", expectedEventType)
+
+					if tracker.HasEventType(expectedEventType) {
+						t.Logf("✅ CloudEvent of type %s successfully received", expectedEventType)
+					}
+				}
 			})
 		}
 	})
