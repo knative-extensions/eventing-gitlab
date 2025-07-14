@@ -60,7 +60,7 @@ of the sources _Github Source_, _AWS SQS Source_, _Camel Source_, _Kafka Source_
 with:
 
 ```
-ko apply -f <source_name>/config  # e.g. github/config
+ko apply -f ./config
 ```
 
 These commands are idempotent, so you can run them at any time to update your
