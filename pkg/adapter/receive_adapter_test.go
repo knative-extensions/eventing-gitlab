@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -31,7 +32,7 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"go.uber.org/zap"
 
-	"gopkg.in/go-playground/webhooks.v5/gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 
 	"knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	"knative.dev/eventing/pkg/adapter/v2"
@@ -60,64 +61,59 @@ type testCase struct {
 	payload interface{}
 
 	// eventType is the GitLab event type
-	eventType gitlab.Event
+	eventType gitlab.EventType
 }
 
 var testCases = []testCase{
 	{
-		name:       "valid comment",
-		payload:    gitlab.CommentEventPayload{},
-		eventType:  gitlab.CommentEvents,
-		statusCode: 202,
-	}, {
 		name:       "valid issues",
-		payload:    gitlab.IssueEventPayload{},
-		eventType:  gitlab.IssuesEvents,
+		payload:    gitlab.IssueEvent{},
+		eventType:  gitlab.EventTypeIssue,
 		statusCode: 202,
 	}, {
 		name:       "valid push",
-		payload:    gitlab.PushEventPayload{},
-		eventType:  gitlab.PushEvents,
+		payload:    gitlab.PushEvent{},
+		eventType:  gitlab.EventTypePush,
 		statusCode: 202,
 	}, {
 		name:       "valid tag event",
-		payload:    gitlab.TagEventPayload{},
-		eventType:  gitlab.TagEvents,
+		payload:    gitlab.TagEvent{},
+		eventType:  gitlab.EventTypeTagPush,
 		statusCode: 202,
 	}, {
 		name:       "valid confidential issue event",
-		payload:    gitlab.ConfidentialIssueEventPayload{},
-		eventType:  gitlab.ConfidentialIssuesEvents,
+		payload:    gitlab.IssueEvent{},
+		eventType:  gitlab.EventTypeIssue,
 		statusCode: 202,
 	}, {
 		name:       "valid merge request event",
-		payload:    gitlab.MergeRequestEventPayload{},
-		eventType:  gitlab.MergeRequestEvents,
+		payload:    gitlab.MergeEvent{},
+		eventType:  gitlab.EventTypeMergeRequest,
 		statusCode: 202,
 	}, {
 		name:       "valid wiki page event",
-		payload:    gitlab.WikiPageEventPayload{},
-		eventType:  gitlab.WikiPageEvents,
+		payload:    gitlab.WikiPageEvent{},
+		eventType:  gitlab.EventTypeWikiPage,
 		statusCode: 202,
 	}, {
 		name:       "valid pipeline event",
-		payload:    gitlab.PipelineEventPayload{},
-		eventType:  gitlab.PipelineEvents,
+		payload:    gitlab.PipelineEvent{},
+		eventType:  gitlab.EventTypePipeline,
 		statusCode: 202,
 	}, {
 		name:       "valid build event",
-		payload:    gitlab.BuildEventPayload{},
-		eventType:  gitlab.BuildEvents,
+		payload:    gitlab.BuildEvent{},
+		eventType:  gitlab.EventTypeBuild,
 		statusCode: 202,
 	}, {
 		name:       "invalid nil payload",
-		payload:    nil,
-		eventType:  gitlab.Event("Invalid Hook"),
-		wantErr:    gitlab.ErrEventNotFound,
+		payload:    []byte("{\"key\": \"value\""),
+		eventType:  gitlab.EventTypeBuild,
+		wantErr:    ErrCouldNotParseWebhookEvent,
 		statusCode: 400,
 	}, {
 		name:       "invalid empty eventType",
-		wantErr:    gitlab.ErrMissingGitLabEventHeader,
+		wantErr:    ErrMissingGitLabEventHeader,
 		statusCode: 400,
 	},
 }
@@ -144,12 +140,8 @@ func TestServer(t *testing.T) {
 	for _, tc := range testCases {
 		ce := adaptertest.NewTestClient()
 		ra := newTestAdapter(t, ce)
-		hook, err := gitlab.New(gitlab.Options.Secret(ra.secretToken))
-		if err != nil {
-			t.Error(err)
-		}
-		router := ra.newRouter(hook)
-		server := httptest.NewServer(router)
+		hook := NewWebhookHandler(ra.secretToken, ra.handleEvent)
+		server := httptest.NewServer(hook)
 		defer server.Close()
 
 		t.Run(tc.name, tc.runner(t, server.URL, ce))
@@ -231,7 +223,7 @@ func (tc *testCase) validateAcceptedPayload(t *testing.T, ce *adaptertest.TestCl
 
 func (tc *testCase) validateResponse(t *testing.T, body string) {
 	if tc.wantErr != nil {
-		assert.EqualError(t, tc.wantErr, body)
+		assert.ErrorContains(t, errors.New(body), tc.wantErr.Error())
 		return
 	}
 	assert.Empty(t, body)
