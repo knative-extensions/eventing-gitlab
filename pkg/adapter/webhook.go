@@ -110,7 +110,7 @@ func (hook webhook) parse(r *http.Request) (any, error) {
 
 	payload, err := io.ReadAll(r.Body)
 	if err != nil || len(payload) == 0 {
-		return nil, ErrReadingfRequestBody
+		return nil, ErrReadingRequestBody
 	}
 
 	return gitlab.ParseWebhook(eventType, payload)
