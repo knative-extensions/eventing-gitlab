@@ -32,7 +32,7 @@ import (
 var (
 	ErrMissingGitLabEventHeader      = errors.New("missing X-Gitlab-Event Header")
 	ErrEventNotSpecifiedToParse      = errors.New("event not defined to be parsed")
-	ErrReadingfRequestBody           = errors.New("error reading request body")
+	ErrReadingRequestBody            = errors.New("error reading request body")
 	ErrGitLabTokenVerificationFailed = errors.New("token validation failed")
 	ErrCouldNotParseWebhookEvent     = errors.New("could parse the webhook event")
 	ErrCouldNotHandleEvent           = errors.New("error handling the event")
