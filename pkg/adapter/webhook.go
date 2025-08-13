@@ -46,7 +46,7 @@ type webhook struct {
 	EventSender EventSender
 }
 
-// webhookExample shows how to create a Webhook server to parse Gitlab events.
+// NewWebhookHandler provide a webhook receiver that parses Gitlab events and emits CloudEvents.
 func NewWebhookHandler(secret string, sender EventSender) webhook {
 	wh := webhook{
 		Secret:      secret,
