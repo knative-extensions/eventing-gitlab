@@ -58,7 +58,7 @@ metadata:
           "type": "dev.knative.sources.gitlab.push",
           "description": "Triggered when you push to the repository except when pushing tags."
         },
-              {
+        {
           "type": "dev.knative.sources.gitlab.release",
           "description": "Triggered when a release is created, edited, or deleted."
         },
