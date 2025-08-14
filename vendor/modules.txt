@@ -227,9 +227,9 @@ github.com/stretchr/testify/require
 # github.com/x448/float16 v0.8.4
 ## explicit; go 1.11
 github.com/x448/float16
-# github.com/xanzy/go-gitlab v0.39.0
-## explicit; go 1.13
-github.com/xanzy/go-gitlab
+# gitlab.com/gitlab-org/api/client-go v0.129.0
+## explicit; go 1.23.0
+gitlab.com/gitlab-org/api/client-go
 # go.opentelemetry.io/auto/sdk v1.1.0
 ## explicit; go 1.22.0
 go.opentelemetry.io/auto/sdk
@@ -555,9 +555,6 @@ google.golang.org/protobuf/types/known/wrapperspb
 # gopkg.in/evanphx/json-patch.v4 v4.12.0
 ## explicit
 gopkg.in/evanphx/json-patch.v4
-# gopkg.in/go-playground/webhooks.v5 v5.15.0
-## explicit
-gopkg.in/go-playground/webhooks.v5/gitlab
 # gopkg.in/inf.v0 v0.9.1
 ## explicit
 gopkg.in/inf.v0
