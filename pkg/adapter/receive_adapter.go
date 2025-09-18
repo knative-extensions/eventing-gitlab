@@ -27,8 +27,6 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"go.uber.org/zap"
 
-	"gopkg.in/go-playground/webhooks.v5/gitlab"
-
 	sourcesv1alpha1 "knative.dev/eventing-gitlab/pkg/apis/sources/v1alpha1"
 	"knative.dev/eventing/pkg/adapter/v2"
 	"knative.dev/pkg/logging"
@@ -86,16 +84,13 @@ func (ra *gitLabReceiveAdapter) Start(ctx context.Context) error {
 }
 
 func (ra *gitLabReceiveAdapter) start(stopCh <-chan struct{}) error {
-	hook, err := gitlab.New(gitlab.Options.Secret(ra.secretToken))
-	if err != nil {
-		return fmt.Errorf("cannot create gitlab hook: %v", err)
-	}
+	wh := NewWebhookHandler(ra.secretToken, ra.handleEvent)
 
 	server := &http.Server{
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
 		Addr:              ":" + ra.port,
-		Handler:           ra.newRouter(hook),
+		Handler:           wh,
 	}
 
 	var wg sync.WaitGroup
@@ -128,41 +123,6 @@ func gracefulShutdown(server *http.Server, logger *zap.SugaredLogger, stopCh <-c
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Fatal("Could not gracefully shutdown the server: ", err)
 	}
-}
-
-func (ra *gitLabReceiveAdapter) newRouter(hook *gitlab.Webhook) *http.ServeMux {
-	router := http.NewServeMux()
-	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		payload, err := hook.Parse(r,
-			gitlab.PushEvents,
-			gitlab.TagEvents,
-			gitlab.IssuesEvents,
-			gitlab.ConfidentialIssuesEvents,
-			gitlab.CommentEvents,
-			gitlab.MergeRequestEvents,
-			gitlab.WikiPageEvents,
-			gitlab.PipelineEvents,
-			gitlab.BuildEvents,
-		)
-		if err != nil {
-			ra.logger.Error("Hook parser error: ", err)
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(err.Error()))
-			return
-		}
-
-		if err := ra.handleEvent(payload, r.Header); err != nil {
-			ra.logger.Error("Event handler error: ", err)
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(err.Error()))
-			return
-		}
-
-		ra.logger.Debug("Event processed")
-		w.WriteHeader(http.StatusAccepted)
-	})
-
-	return router
 }
 
 func (ra *gitLabReceiveAdapter) handleEvent(payload interface{}, header http.Header) error {

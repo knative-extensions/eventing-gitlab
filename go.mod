@@ -9,9 +9,8 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.11.1
-	github.com/xanzy/go-gitlab v0.39.0
+	gitlab.com/gitlab-org/api/client-go v0.129.0
 	go.uber.org/zap v1.27.0
-	gopkg.in/go-playground/webhooks.v5 v5.15.0
 	k8s.io/api v0.33.4
 	k8s.io/apimachinery v0.33.4
 	k8s.io/client-go v0.33.4
