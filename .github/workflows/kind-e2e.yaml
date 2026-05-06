@@ -137,8 +137,16 @@ jobs:
         kubectl --namespace default get ksvc
 
     - name: Run e2e Tests
+      env:
+        WEBHOOK_URL: http://127.0.0.1:8080
       run: |
         set -x
+        # The receive adapter ksvc resolves to *.svc.cluster.local, which the
+        # runner host cannot reach. Forward the cluster-local Kourier listener
+        # so the test can POST through it with the original Host header.
+        kubectl --namespace kourier-system port-forward svc/kourier-internal 8080:80 &
+        trap "kill $! 2>/dev/null || true" EXIT
+        sleep 5
         go test -v -count=1 -timeout=15m -tags=integration ./test/...
 
     - name: Gather Failure Data
