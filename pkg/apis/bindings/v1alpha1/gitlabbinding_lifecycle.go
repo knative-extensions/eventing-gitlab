@@ -64,7 +64,7 @@ func (sbs *GitLabBindingStatus) InitializeConditions() {
 // MarkBindingUnavailable marks the GitLabBinding's Ready condition to False with
 // the provided reason and message.
 func (sbs *GitLabBindingStatus) MarkBindingUnavailable(reason, message string) {
-	sbCondSet.Manage(sbs).MarkFalse(GitLabBindingConditionReady, reason, message)
+	sbCondSet.Manage(sbs).MarkFalse(GitLabBindingConditionReady, reason, "%s", message)
 }
 
 // MarkBindingAvailable marks the GitLabBinding's Ready condition to True.
