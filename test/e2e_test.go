@@ -121,8 +121,22 @@ func TestE2E_GitLabSourceWebhookIntegration(t *testing.T) {
 
 	// Get the webhook URL
 	require.NotNil(t, gitlabSourceService.Status.URL, "Service should have a URL")
-	webhookURL := gitlabSourceService.Status.URL.String()
-	t.Logf("GitLabSource webhook URL: %s", webhookURL)
+	clusterURL := gitlabSourceService.Status.URL
+	webhookURL := clusterURL.String()
+
+	// When the test runs from outside the cluster (CI runner), in-cluster DNS
+	// is not resolvable. WEBHOOK_URL lets the workflow point at a local Kourier
+	// port-forward; the original cluster host is then sent as Host so Knative
+	// routes the request to the correct ksvc.
+	hostHeader := ""
+	if override := os.Getenv("WEBHOOK_URL"); override != "" {
+		webhookURL = override
+		hostHeader = clusterURL.Host
+		if envHost := os.Getenv("WEBHOOK_HOST"); envHost != "" {
+			hostHeader = envHost
+		}
+	}
+	t.Logf("GitLabSource webhook URL: %s (host header: %q)", webhookURL, hostHeader)
 
 	// Start streaming event display logs in background
 	tracker := NewCloudEventTracker()
@@ -171,6 +185,12 @@ func TestE2E_GitLabSourceWebhookIntegration(t *testing.T) {
 				// Create HTTP request
 				req, err := http.NewRequest("POST", webhookURL, bytes.NewReader([]byte(jsonPayload)))
 				require.NoError(t, err, "Failed to create HTTP request")
+
+				// When posting via a Kourier port-forward, the original ksvc
+				// host must travel as the Host header for Knative routing.
+				if hostHeader != "" {
+					req.Host = hostHeader
+				}
 
 				// Set GitLab webhook headers
 				req.Header.Set("Content-Type", "application/json")
