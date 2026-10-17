@@ -1,0 +1,194 @@
+name: KinD e2e tests
+
+on:
+  push:
+    branches: ['main', 'release-*']
+  pull_request:
+    branches: ['main', 'release-*']
+
+jobs:
+  e2e-tests:
+    name: e2e tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # Keep running if one leg fails.
+      matrix:
+        k8s-version:
+        - v1.34.3
+
+        # Map between K8s and KinD versions.
+        # See: https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0
+        include:
+        - k8s-version: v1.34.3
+          kind-version: v0.31.0
+          kind-image-sha: sha256:08497ee19eace7b4b5348db5c6a1591d7752b164530a36f855cb0f2bdcbadd48
+          knative-version: knative-v1.22.0
+
+    env:
+      KO_DOCKER_REPO: kind.local
+      SYSTEM_NAMESPACE: knative-sources
+      KIND_CLUSTER_NAME: kind
+
+    steps:
+    - name: Defaults
+      run: |
+        if [[ "${{ secrets.SLACK_WEBHOOK }}" != "" ]]; then
+          echo "SLACK_WEBHOOK=exists" >> $GITHUB_ENV
+        fi
+
+    - name: Set up Go
+      uses: knative/actions/setup-go@main
+
+    - name: Install ko
+      uses: ko-build/setup-ko@v0.7
+
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Install KinD
+      env:
+        KIND_VERSION: ${{ matrix.kind-version }}
+      run: |
+        set -x
+        curl -Lo ./kind https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-$(uname)-amd64
+        chmod +x ./kind
+        sudo mv kind /usr/local/bin
+
+    - name: Create KinD Cluster
+      run: |
+        set -x
+
+        cat > kind.yaml <<EOF
+        apiVersion: kind.x-k8s.io/v1alpha4
+        kind: Cluster
+        nodes:
+        - role: control-plane
+          image: kindest/node:${{ matrix.k8s-version }}@${{ matrix.kind-image-sha }}
+        - role: worker
+          image: kindest/node:${{ matrix.k8s-version }}@${{ matrix.kind-image-sha }}
+        EOF
+
+        kind create cluster --config kind.yaml
+
+    - name: Install Knative Serving
+      run: |
+        set -x
+        kubectl apply -f https://github.com/knative/serving/releases/download/${{ matrix.knative-version }}/serving-crds.yaml
+        sleep 2
+        kubectl apply -f https://github.com/knative/serving/releases/download/${{ matrix.knative-version }}/serving-core.yaml
+
+    - name: Install Kourier networking layer
+      run: |
+        set -x
+        kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/${{ matrix.knative-version }}/kourier.yaml
+        # Make Kourier the default ingress for Knative Serving.
+        kubectl patch configmap/config-network \
+          --namespace knative-serving \
+          --type merge \
+          --patch '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}'
+
+    - name: Install Knative Eventing
+      run: |
+        set -x
+        kubectl apply -f ./third_party/eventing-latest/eventing-crds.yaml
+        sleep 2
+        kubectl apply -f ./third_party/eventing-latest/eventing-core.yaml
+
+    - name: Wait for Knative components Ready
+      run: |
+        set -e
+        source ./vendor/knative.dev/hack/infra-library.sh
+        wait_until_pods_running knative-serving
+        wait_until_pods_running knative-eventing
+        wait_until_pods_running kourier-system
+
+    - name: Install eventing-gitlab
+      run: |
+        set -x
+        ko apply -f ./config
+
+    - name: Wait for eventing-gitlab Ready
+      run: |
+        set -e
+        source ./vendor/knative.dev/hack/infra-library.sh
+        wait_until_pods_running ${SYSTEM_NAMESPACE}
+
+    - name: Apply test fixtures
+      run: |
+        set -x
+        kubectl apply -f samples/event-display.yaml
+        kubectl apply -f samples/secret.yaml
+        kubectl apply -f samples/gitlabsource.yaml
+
+    - name: Wait for receive adapter Service URL
+      run: |
+        set -e
+        # The sample GitLabSource points at gitlab.example.com so the controller
+        # cannot register a real webhook and the source will not become Ready.
+        # The integration test only needs the receive adapter Knative Service
+        # to exist and be addressable, so wait on that condition directly.
+        timeout 300 bash -c '
+          until [[ -n "$(kubectl --namespace default get ksvc --selector receive-adapter=gitlab --output jsonpath="{.items[0].status.url}" 2>/dev/null)" ]]; do
+            echo "Waiting for GitLabSource receive adapter ksvc URL..."
+            kubectl --namespace default get ksvc 2>/dev/null || true
+            sleep 5
+          done
+        '
+        kubectl --namespace default get ksvc
+
+    - name: Run e2e Tests
+      env:
+        WEBHOOK_URL: http://127.0.0.1:8080
+      run: |
+        set -x
+        # The receive adapter ksvc resolves to *.svc.cluster.local, which the
+        # runner host cannot reach. Forward the cluster-local Kourier listener
+        # so the test can POST through it with the original Host header.
+        kubectl --namespace kourier-system port-forward svc/kourier-internal 8080:80 &
+        trap "kill $! 2>/dev/null || true" EXIT
+        sleep 5
+        go test -v -count=1 -timeout=15m -tags=integration ./test/...
+
+    - name: Gather Failure Data
+      if: ${{ failure() }}
+      run: |
+        set -x
+
+        echo "===================== Nodes ============================="
+        kubectl get nodes -o wide || true
+
+        echo "===================== GitLabSources ====================="
+        kubectl get gitlabsource --all-namespaces=true -oyaml || true
+
+        echo "===================== Knative Services =================="
+        kubectl get ksvc --all-namespaces=true -oyaml || true
+
+        echo "===================== Pods =============================="
+        kubectl get pods --all-namespaces=true || true
+
+        echo "===================== K8s Events ========================"
+        kubectl get events --all-namespaces=true || true
+
+        echo "===================== Pod Logs =========================="
+        for namespace in knative-serving knative-eventing kourier-system knative-sources default; do
+          for pod in $(kubectl get pod -n $namespace -o name 2>/dev/null); do
+            for container in $(kubectl get $pod -n $namespace -o jsonpath='{.spec.containers[*].name}' 2>/dev/null); do
+              echo "----- $namespace $pod $container -----"
+              kubectl logs -n $namespace $pod -c $container --tail=200 || true
+            done
+          done
+        done
+
+    - name: Post failure notice to Slack
+      # Note: using env.SLACK_WEBHOOK here because secrets are not allowed in the if block.
+      if: ${{ env.SLACK_WEBHOOK != '' && failure() && github.event_name != 'pull_request' }}
+      uses: rtCamp/action-slack-notify@v2.1.0
+      env:
+        SLACK_ICON: http://github.com/knative.png?size=48
+        SLACK_USERNAME: github-actions
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_CHANNEL: 'eventing-delivery'
+        MSG_MINIMAL: 'true'
+        SLACK_TITLE: Periodic e2e for GitLab on kind on (${{ matrix.k8s-version }}, ${{ matrix.knative-version }}) failed.
+        SLACK_MESSAGE: |
+          For detailed logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
